@@ -1,0 +1,117 @@
+[
+  {
+    "id": "min_publicadores",
+    "descripcion": "Debe cumplirse el mínimo de publicadores en cada turno",
+    "tipo": "error",
+    "campo": "puntos.minimo_publicadores",
+    "comparacion": ">=",
+    "valor": "conteo(publicadores)"
+  },
+  {
+    "id": "max_publicadores",
+    "descripcion": "No superar el máximo de publicadores permitidos",
+    "tipo": "error",
+    "campo": "puntos.maximo_publicadores",
+    "comparacion": "<=",
+    "valor": "conteo(publicadores)"
+  },
+  {
+    "id": "min_varones",
+    "descripcion": "Debe haber el mínimo de varones requerido",
+    "tipo": "error",
+    "campo": "puntos.minimo_varones",
+    "comparacion": "<=",
+    "valor": "conteo(varones)"
+  },
+  {
+    "id": "capitan_obligatorio",
+    "descripcion": "Debe asignarse al menos un capitán por turno",
+    "tipo": "error",
+    "campo": "conteo(capitanes)",
+    "comparacion": ">=",
+    "valor": 1
+  },
+  {
+    "id": "participantes_par",
+    "descripcion": "El número de participantes debe ser par si el punto lo requiere",
+    "tipo": "advertencia",
+    "condicion": "puntos.participantes_par == 1",
+    "campo": "conteo(publicadores)",
+    "comparacion": "%",
+    "valor": 2
+  },
+  {
+    "id": "primer_turno_limite",
+    "descripcion": "Respetar los límites de primer turno si están definidos",
+    "tipo": "advertencia",
+    "condicion": "puntos.limites_primer_turno == 1",
+    "campo": "turno.hora_inicio",
+    "comparacion": ">=",
+    "valor": "config.primer_turno_hora"
+  },
+  {
+    "id": "ultimo_turno_limite",
+    "descripcion": "Respetar los límites del último turno si están definidos",
+    "tipo": "advertencia",
+    "condicion": "puntos.limites_ultimo_turno == 1",
+    "campo": "turno.hora_fin",
+    "comparacion": "<=",
+    "valor": "config.ultimo_turno_hora"
+  },
+  {
+    "id": "idioma_correcto",
+    "descripcion": "El publicador debe coincidir con el idioma del punto",
+    "tipo": "error",
+    "campo": "usuario.idioma_id",
+    "comparacion": "==",
+    "valor": "puntos.idiomas_id"
+  },
+  {
+    "id": "disponibilidad_usuario",
+    "descripcion": "El publicador debe estar disponible en la franja horaria",
+    "tipo": "error",
+    "campo": "usuario.disponibilidad",
+    "comparacion": "incluye",
+    "valor": "turno.hora_inicio-hora_fin"
+  },
+  {
+    "id": "no_ausencia",
+    "descripcion": "El usuario no debe tener ausencia registrada en la fecha",
+    "tipo": "error",
+    "campo": "usuario.ausencias",
+    "comparacion": "no_incluye",
+    "valor": "turno.fecha"
+  },
+  {
+    "id": "restriccion_asig",
+    "descripcion": "Respetar restricciones de asignación definidas en el punto",
+    "tipo": "advertencia",
+    "campo": "puntos.restriccion_asig",
+    "comparacion": "==",
+    "valor": 0
+  },
+  {
+    "id": "preferencia_punto",
+    "descripcion": "Dar prioridad a los puntos marcados como preferidos",
+    "tipo": "preferencia",
+    "campo": "usuario.preferencias",
+    "comparacion": "incluye",
+    "valor": "puntos.id"
+  },
+  {
+    "id": "evitar_no_preferidos",
+    "descripcion": "Evitar asignar a puntos marcados como no preferidos",
+    "tipo": "advertencia",
+    "campo": "usuario.no_preferidos",
+    "comparacion": "no_incluye",
+    "valor": "puntos.id"
+  },
+  {
+    "id": "feriados",
+    "descripcion": "Si el turno cae en un feriado, marcar advertencia especial",
+    "tipo": "advertencia",
+    "campo": "turno.fecha",
+    "comparacion": "incluye",
+    "valor": "config.feriados"
+  }
+]
