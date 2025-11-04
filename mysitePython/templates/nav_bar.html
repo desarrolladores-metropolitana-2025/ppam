@@ -1,0 +1,53 @@
+<!-- Bootstrap CSS -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+<nav class="navbar navbar-expand-lg navbar-dark rounded shadow-sm mb-4" 
+     style="background: linear-gradient(135deg, #6a11cb, #2575fc);">
+    <div class="container-fluid">
+        <a class="navbar-brand fw-bold text-white" href="{{ url_for('main_page') }}">
+            <i class="bi bi-house-door-fill me-1"></i> PPAM CABA
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMenu"
+                aria-controls="navbarMenu" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarMenu">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('publicadores_index') }}">Publicadores</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('puntos_index') }}">Puntos</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('solicitudes_index') }}">Solicitudes</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('ausencias_index') }}">Ausencias</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('experiencias_index') }}">Experiencias</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('turnos_index') }}">Turnos</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('planificacion_index') }}">Planificación</a></li>
+                <li class="nav-item"><a class="nav-link text-white" href="{{ url_for('configuracion') }}">Configuración</a></li>
+            </ul>
+
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-white fw-semibold">{{ current_user.nombre }} ({{ current_user.rol }})</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">
+                    Logout <i class="bi bi-box-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<style>
+.navbar .nav-link {
+    transition: all 0.3s ease;
+}
+.navbar .nav-link:hover {
+    color: #ffd700 !important;
+    text-shadow: 0 0 5px rgba(255,255,255,0.7);
+}
+.navbar .navbar-brand:hover {
+    text-shadow: 0 0 8px rgba(255,255,255,0.8);
+}
+</style>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vista del Publicador</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+    body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
+    .header img { width: 60px; height: 60px; object-fit: cover; margin-right: 1rem; }
+    h3 { margin: 0; font-weight: 600; }
+
+    .card { margin-bottom: 1rem; cursor: pointer; border-radius: 0.75rem; transition: all 0.3s ease; }
+    .card.expanded { transform: scale(1.03); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+    .card-content { display: none; margin-top: 0.5rem; }
+    .card.expanded .card-content { display: block; }
+    .asignacion { background-color: #e3f2fd; } /* azul claro */
+    .experiencia { background-color: #fff8e1; } /* amarillo claro */
+
+    .btn-main {
+        width: 100px;
+        height: 100px;
+        font-size: 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        border-radius: 1rem;
+        margin: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    .btn-main i {
+        font-size: 2rem;
+    }
+    .btn-main:hover { transform: scale(1.1); }
+
+    .btn-small {
+        width: 48%;
+        margin: 0.25rem 1%;
+        border-radius: 0.5rem;
+    }
+
+    @media(min-width: 992px) {
+        .main-row { display: flex; gap: 1rem; }
+        .left-col { flex: 2; }
+        .right-col { flex: 1; }
+    }
+
+    /* Botones épicos generales */
+.btn-epico {
+    font-weight: 700;
+    color: #fff;
+    border: none;
+    padding: 16px 40px;
+    font-size: 1.2rem;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    transition: all 0.4s ease;
+}
+
+/* Colores únicos para cada botón */
+.btn-turno { background: linear-gradient(135deg, #6a11cb, #2575fc); }
+.btn-turno:hover { box-shadow: 0 0 20px #6a11cb, 0 0 30px #2575fc; }
+
+.btn-ausencia { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
+.btn-ausencia:hover { box-shadow: 0 0 20px #ff416c, 0 0 30px #ff4b2b; }
+
+.btn-reemplazo { background: linear-gradient(135deg, #f7971e, #ffd200); }
+.btn-reemplazo:hover { box-shadow: 0 0 20px #f7971e, 0 0 30px #ffd200; }
+
+.btn-experiencia { background: linear-gradient(135deg, #00c6ff, #0072ff); }
+.btn-experiencia:hover { box-shadow: 0 0 20px #00c6ff, 0 0 30px #0072ff; }
+
+.btn-perfil { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+.btn-perfil:hover { box-shadow: 0 0 20px #43e97b, 0 0 30px #38f9d7; }
+
+/* Iconos enormes y animados */
+.btn-epico i {
+    font-size: 2rem;
+    transition: transform 0.5s;
+    display: inline-block;
+}
+
+.btn-epico:hover i {
+    transform: rotate(360deg) scale(1.3);
+}
+
+/* Efecto de brillo en hover */
+.btn-epico span {
+    position: relative;
+    z-index: 2;
+}
+
+.btn-epico::before {
+    content: "";
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: rgba(255,255,255,0.2);
+    transform: skewX(-25deg);
+    transition: all 0.5s;
+}
+
+.btn-epico:hover::before {
+    left: 100%;
+}
+
+/* Botones pequeños siempre en línea, tamaño fijo */
+.btn-pequeno {
+    padding: 10px 24px;       /* un poco más chicos que los principales */
+    font-size: 1rem;          /* tamaño de texto más contenido */
+    width: 160px;             /* ancho fijo */
+    flex: 0 0 auto;           /* no se expanden ni encogen */
+    border-radius: 50px;
+}
+
+.btn-pequeno i {
+    font-size: 1.5rem;        /* íconos más chicos que los grandes */
+    transition: transform 0.5s;
+}
+
+
+/* Ajuste del botón Perfil en pantallas pequeñas */
+/* Ajuste de tamaño para pantallas pequeñas */
+/* Botón "Cerrar sesión" igual que "Nueva experiencia" por defecto */
+form#logoutForm .btn {
+    padding: 10px 24px;
+    font-size: 1rem;
+    width: 160px;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+form#logoutForm i {
+    font-size: 1.5rem;
+}
+
+/* Ajuste solo en pantallas pequeñas */
+@media (max-width: 576px) {
+    .btn-pequeno,
+    form#logoutForm .btn {
+        padding: 8px 18px !important;
+        font-size: 0.9rem !important;
+        width: 140px !important;
+    }
+
+    form#logoutForm i {
+        font-size: 1.3rem !important;
+    }
+}
+
+
+
+
+</style>
+</head>
+<body class="p-3">
+<div class="container">
+
+
+    <!-- Header con logo y nombre -->
+    <div class="header">
+        <div class="d-flex align-items-center">
+            <img src="/static/ppamlogo.png" alt="Logo PPAM">
+            <h3>Bienvenido, {{ user.nombre }} {{ user.apellido }}</h3>
+        </div>
+
+    <button class="btn btn-epico btn-pequeno btn-perfil" data-bs-toggle="modal" data-bs-target="#perfilModal">
+        <i class="bi bi-person-circle"></i>
+        <span>Perfil</span>
+    </button>
+
+
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+    {% endwith %}
+
+
+    <!-- Contenido principal: Próximas asignaciones y Experiencias -->
+    <div class="main-row">
+        <div class="left-col">
+            <h4>📅 Próximas asignaciones</h4>
+            {% for t in turnos %}
+                <div class="card asignacion" onclick="toggleCard(this)">
+                    <div class="card-body">
+                        <h5>{{ t.punto.punto_nombre }}</h5>
+                        <p>{{ t.dia }} - {{ t.fecha.strftime('%d/%m/%Y') }} ({{ t.hora_inicio.strftime('%H:%M') }} - {{ t.hora_fin.strftime('%H:%M') }})</p>
+                        <div class="card-content">
+                                    <small><b>Capitán:</b> {{ t.capitan.nombre }} {{ t.capitan.apellido }}</small><br>
+                            <small><b>Publicadores:</b>
+                            {% for p in [t.publicador1, t.publicador2, t.publicador3, t.publicador4] if p %}
+                                {{ p.nombre }} {{ p.apellido }}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <p>No tenés asignaciones próximas.</p>
+            {% endfor %}
+        </div>
+
+        <div class="right-col">
+            <h4>✨ Experiencias y Novedades<h4>
+            {% for e in experiencias %}
+                <div class="card experiencia" onclick="toggleCard(this)">
+                    <div class="card-body">
+                        <h5>{{ e.punto.punto_nombre }}</h5>
+
+                        <div class="card-content">
+                            <p>{{ e.fecha.strftime('%d/%m/%Y') }}</p>
+                            <p>{{ e.notas }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <p>No hay novedades.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+
+
+
+<!-- Botones principales grandes -->
+<div class="d-flex justify-content-center flex-wrap mt-4 mb-2 gap-3">
+    <button class="btn btn-epico btn-turno" data-bs-toggle="modal" data-bs-target="#turnoModal">
+        <i class="bi bi-calendar-plus-fill"></i>
+        <span>Nuevo Turno Fijo</span>
+    </button>
+
+    <button class="btn btn-epico btn-ausencia" data-bs-toggle="modal" data-bs-target="#ausenciaModal">
+        <i class="bi bi-person-x-fill"></i>
+        <span>Ausencia</span>
+    </button>
+
+    <button class="btn btn-epico btn-reemplazo" data-bs-toggle="modal" data-bs-target="#reemplazosModal">
+        <i class="bi bi-arrow-repeat"></i>
+        <span>Reemplazos</span>
+    </button>
+</div>
+
+
+
+<br>
+
+<!-- Botones pequeños abajo, siempre en línea -->
+
+
+
+<div class="d-flex justify-content-center gap-3 flex-nowrap mb-4">
+    <button class="btn btn-epico btn-pequeno btn-experiencia" data-bs-toggle="modal" data-bs-target="#experienciaModal">
+        <i class="bi bi-journal-text"></i>
+        <span>Nueva Experiencia</span>
+    </button>
+<form id="logoutForm" action="{{ url_for('logout') }}">
+    <button type="submit" class="btn btn-danger btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-box-arrow-right"></i>
+        <span>Cerrar Sesión</span>
+    </button>
+    </form>
+
+
+</div>
+
+
+
+
+
+
+
+
+
+</div>
+
+<!-- Modales -->
+{% include 'modales_pubview.html' %}
+
+<script>
+    function toggleCard(card) {
+        card.classList.toggle("expanded");
+    }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
