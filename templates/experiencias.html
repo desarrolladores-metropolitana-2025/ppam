@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experiencias</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin:0; padding:0;}
+
+        .container { max-width: 1200px; margin:20px auto; padding:0 20px;}
+        h1 { margin-bottom:20px; color:#333; }
+        .card { background:white; border-radius:10px; box-shadow:0 3px 6px rgba(0,0,0,0.1); padding:20px; margin-bottom:20px;}
+        table { width:100%; border-collapse:collapse; margin-top:15px;}
+        table th, table td { padding:10px; border:1px solid #ddd; text-align:left;}
+        table th { background:#343a40; color:white;}
+        table tr:nth-child(even) { background:#f9f9f9;}
+        .btn { padding:8px 14px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; margin-right:5px;}
+        .btn:hover { background:#0056b3; }
+        .btn-danger { background:#dc3545;}
+        .btn-danger:hover { background:#a71d2a; }
+        .form-group { margin-bottom:12px; }
+        label { display:block; margin-bottom:5px; font-weight:600; }
+        input[type="text"], input[type="date"], select, textarea { width:100%; padding:6px 10px; border-radius:5px; border:1px solid #ccc;}
+        .form-inline { display:flex; flex-wrap:wrap; gap:15px;}
+        .form-inline .form-group { flex:1; min-width:120px;}
+        textarea { resize: vertical; }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+<div class="container py-4">
+    {% include 'nav_bar.html' %}
+
+
+    <h1>Experiencias</h1>
+
+
+
+<!-- Mensajes de creación, edición, etc -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+    {% endwith %}
+
+
+    <div class="card">
+        <h2>{{ 'Editar' if experiencia else 'Nueva' }} Experiencia</h2>
+        <form action="{{ url_for('experiencias_guardar') }}" method="POST">
+            {% if experiencia %}
+                <input type="hidden" name="id" value="{{ experiencia.id }}">
+            {% endif %}
+
+            <div class="form-inline">
+                <div class="form-group">
+                    <label for="publicador_id">Publicador</label>
+                    <select name="publicador_id" id="publicador_id" required>
+                        <option value="">Seleccione...</option>
+                        {% for pub in publicadores %}
+                        <option value="{{ pub.id }}" {% if experiencia and experiencia.publicador_id==pub.id %}selected{% endif %}>
+                            {{ pub.nombre }} {{ pub.apellido }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="punto_id">Punto de Predicación</label>
+                    <select name="punto_id" id="punto_id" required>
+                        <option value="">Seleccione...</option>
+                        {% for p in puntos %}
+                        <option value="{{ p.id }}" {% if experiencia and experiencia.punto_id==p.id %}selected{% endif %}>
+                            {{ p.punto_nombre }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="fecha">Fecha</label>
+                    <input type="date" name="fecha" id="fecha" value="{{ date_to_str(experiencia.fecha) if experiencia else '' }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="is_public">Pública</label>
+                    <input type="checkbox" name="is_public" id="is_public" {% if experiencia and experiencia.is_public %}checked{% endif %}>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="notas">Notas</label>
+                <textarea name="notas" id="notas" rows="4">{{ experiencia.notas if experiencia else '' }}</textarea>
+            </div>
+
+            <div style="margin-top:15px;">
+                <button type="submit" class="btn btn-primary">{{ 'Actualizar' if experiencia else 'Crear' }}</button>
+                <a href="{{ url_for('experiencias_index') }}" class="btn btn-danger">Cancelar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Listado de Experiencias</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Publicador</th>
+                    <th>Punto</th>
+                    <th>Fecha</th>
+                    <th>Pública</th>
+                    <th>Notas</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in experiencias %}
+                <tr>
+                    <td>{{ e.id }}</td>
+                    <td>{{ e.publicador.nombre ~ ' ' ~ e.publicador.apellido if e.publicador else '' }}</td>
+                    <td>{{ e.punto.punto_nombre if e.punto else '' }}</td>
+                    <td>{{ date_to_str(e.fecha) }}</td>
+                    <td>{{ 'Sí' if e.is_public else 'No' }}</td>
+                    <td>{{ e.notas }}</td>
+                    <td>
+                        <a href="{{ url_for('experiencias_editar', id=e.id) }}" class="btn btn-warning">Editar</a>
+                        <a href="{{ url_for('experiencias_eliminar', id=e.id) }}" class="btn btn-danger">Eliminar</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+</body>
+</html>

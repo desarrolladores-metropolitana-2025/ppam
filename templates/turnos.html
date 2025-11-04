@@ -1,0 +1,294 @@
+<!-- templates/turnos.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turnos</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<style>
+body { font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f0f2f5; margin:0; padding:0; }
+
+.container { max-width:1200px; margin:15px auto; padding:0 15px; }
+h1 { margin-bottom:15px; color:#333; }
+.week-nav { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.btn-week { padding:4px 8px; font-size:13px; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer; }
+.btn-week:hover { background:#0056b3; }
+.tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.tab { padding:8px 12px; background:#007bff; color:white; border-radius:6px; cursor:pointer; font-size:14px; }
+.tab.active { background:#0056b3; }
+.card { background:white; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); padding:15px; margin-bottom:10px; }
+.dia-header { cursor:pointer; background:#e2e6ea; padding:8px; border-radius:6px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center; font-weight:600; }
+.dia-content { margin-bottom:10px; }
+table { width:100%; border-collapse:collapse; margin-top:5px; }
+th, td { padding:6px; border:1px solid #ddd; text-align:left; font-size:13px; white-space:nowrap; }
+th { background:#343a40; color:white; }
+tr:nth-child(even) { background:#f9f9f9; }
+select { padding:3px; border-radius:4px; border:1px solid #ccc; font-size:13px; }
+.action-buttons { display:flex; gap:5px; }
+.btn-guardar { background:#28a745; color:white; border:none; border-radius:6px; padding:5px 10px; cursor:pointer; }
+.btn-guardar:hover { background:#218838; }
+.btn-validar { background:#ffc107; color:#212529; border:none; border-radius:6px; padding:5px 10px; cursor:pointer; }
+.btn-validar:hover { background:#e0a800; }
+.btn-autocompletar { background:#17a2b8; color:white; border:none; border-radius:6px; padding:5px 10px; cursor:pointer; }
+.btn-autocompletar:hover { background:#138496; }
+.alert { background-color:#dc3545 !important; color:white; }
+.warning { background-color:#ffc107 !important; color:#212529; }
+@media (max-width:768px){ .tabs{flex-direction:column;} table, th, td{font-size:12px;} }
+</style>
+</head>
+<body>
+    <div class="container py-4">
+    <!-- Navbar -->
+    {% include 'nav_bar.html' %}
+
+
+    <h1>Turnos</h1>
+
+
+<!-- Mensajes de creación, edición, etc -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+    {% endwith %}
+
+
+    <div class="week-nav">
+        <a href="{{ url_for('turnos_index', week_start=prev_week.strftime('%Y-%m-%d')) }}" class="btn-week">⬅ Semana anterior</a>
+        <span><h4>Semana del {{ week_start.strftime('%d-%m-%Y') }} al {{ week_end.strftime('%d-%m-%Y') }}</h4></span>
+        <a href="{{ url_for('turnos_index', week_start=next_week.strftime('%Y-%m-%d')) }}" class="btn-week">Semana siguiente ➡</a>
+    </div>
+
+    <!-- Tabs de puntos -->
+    <div class="tabs">
+        {% for punto in puntos %}
+        <div class="tab {% if loop.first %}active{% endif %}" onclick="showTab({{ loop.index0 }})">
+            {{ punto.punto_nombre }}
+        </div>
+        {% endfor %}
+    </div>
+
+    {% for punto in puntos %}
+    <div class="card punto-card" style="{% if not loop.first %}display:none{% endif %}">
+        <h3>{{ punto.punto_nombre }}</h3>
+
+        <form id="form_turnos_{{ punto.id }}" action="{{ url_for('turnos_guardar') }}" method="POST">
+            <input type="hidden" name="punto_id" value="{{ punto.id }}">
+            <input type="hidden" name="week_start" value="{{ week_start.strftime('%Y-%m-%d') }}">
+
+            <!-- Botones arriba a la derecha -->
+            <div class="action-buttons" style="justify-content:flex-end; margin-bottom:10px;">
+                <button type="submit" name="accion" value="guardar" class="btn-guardar">Guardar</button>
+                <button type="submit" name="accion" value="validar" class="btn-validar">Validar</button>
+                <button type="submit" name="accion" value="autocompletar" class="btn-autocompletar">Autocompletar</button>
+            </div>
+
+            {% for dia, turnos_dia in turnos[punto.id].items() %}
+            <div class="dia-section">
+                <div class="dia-header" onclick="toggleDiaContent(this)">
+                    <span>{{ dia.capitalize() }} – {{ turnos_dia[0]['fecha'].strftime('%d-%m-%Y') }}</span>
+                    <span class="toggle-arrow">▼</span>
+                </div>
+                <div class="dia-content">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Hora Inicio</th>
+                                <th>Hora Fin</th>
+                                <th>Capitán</th>
+                                <th>Publicador 1</th>
+                                <th>Publicador 2</th>
+                                <th>Publicador 3</th>
+                                <th>Publicador 4</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for t in turnos_dia %}
+                            <tr>
+                                <td>{{ t['hora_inicio'].strftime('%H:%M') }}</td>
+                                <td>{{ t['hora_fin'].strftime('%H:%M') }}</td>
+                                <td>
+                                    <select name="capitan_{{ t['id'] }}">
+                                        <option value="">-</option>
+                                        {% for pub in publicadores %}
+                                        <option value="{{ pub.id }}" {% if t.capitan_id == pub.id %}selected{% endif %}>
+                                            {{ pub.nombre }} {{ pub.apellido }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                {% for i in range(1,5) %}
+                                <td>
+                                    <select name="publicador{{ i }}_{{ t['id'] }}">
+                                        <option value="">-</option>
+                                        {% for pub in publicadores %}
+                                        <option value="{{ pub.id }}" {% if t['publicador' ~ i ~ '_id'] == pub.id %}selected{% endif %}>
+                                            {{ pub.nombre }} {{ pub.apellido }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </form>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+const cards = document.querySelectorAll('.punto-card');
+const tabs = document.querySelectorAll('.tab');
+function showTab(index){
+    cards.forEach((c,i)=>c.style.display=i===index?'block':'none');
+    tabs.forEach((t,i)=>t.classList.toggle('active', i===index));
+}
+function toggleDiaContent(el){
+    const content=el.nextElementSibling;
+    content.style.display=content.style.display==='none'?'block':'none';
+    el.querySelector('.toggle-arrow').textContent=content.style.display==='none'?'►':'▼';
+}
+</script>
+
+<script>
+document.querySelectorAll('form[id^="form_turnos_"]').forEach(form => {
+    form.addEventListener('submit', function (e) {
+        const accion = e.submitter ? e.submitter.value : null;
+        if (accion !== 'validar') return; // solo valida cuando se presiona "Validar"
+
+        e.preventDefault(); // evita el envío del form
+
+        // limpiar colores y tooltips anteriores
+        document.querySelectorAll('select').forEach(s => {
+            s.classList.remove('alert', 'warning');
+            s.removeAttribute('title');
+        });
+
+        let errores = 0;
+        const turnosForm = {}; // turnoId -> {capitan, pubs, horaInicio, horaFin, form}
+        const publicadorTurnos = {}; // publicadorId -> array de {horaInicio, horaFin, turnoId, form}
+        const config = {{ config|tojson|safe }}; // viene del servidor
+
+        // recorrer todos los selects
+        form.querySelectorAll('select').forEach(sel => {
+            const name = sel.name;
+            const match = name.match(/(capitan|publicador\d+)_(\d+)/);
+            if (!match) return;
+            const turnoId = match[2];
+            const tipo = match[1];
+            const val = sel.value;
+
+            if (!turnosForm[turnoId]) {
+                // obtener horas del turno desde la tabla
+                const row = sel.closest('tr');
+                const hi = row.children[0].textContent.trim(); // Hora inicio
+                const hf = row.children[1].textContent.trim(); // Hora fin
+                turnosForm[turnoId] = {capitan: null, pubs: [], horaInicio: hi, horaFin: hf, form: form};
+            }
+
+            if (tipo === 'capitan') turnosForm[turnoId].capitan = val;
+            else if (val) turnosForm[turnoId].pubs.push(val);
+        });
+
+        // Validar cada turno internamente
+        for (const [turnoId, datos] of Object.entries(turnosForm)) {
+            const todos = [...datos.pubs, datos.capitan].filter(Boolean);
+            const repetidos = todos.filter((v, i, a) => a.indexOf(v) !== i);
+
+            // marcar repetidos en el mismo turno
+            if (repetidos.length > 0) {
+                repetidos.forEach(rep => {
+                    form.querySelectorAll(`select option[value="${rep}"]:checked`).forEach(opt => {
+                        const sel = opt.parentElement;
+                        sel.classList.add('alert');
+                        sel.setAttribute('title', 'Este publicador/capitán se repite en el mismo turno');
+                    });
+                });
+                errores++;
+            }
+
+            // validar reglas del config (si existen)
+            const minPubs = config.min_publicadores || 2;
+            const reqCapitan = config.capitan_obligatorio ?? true;
+            if (datos.pubs.length < minPubs) {
+                form.querySelectorAll(`select[name^="publicador"][name$="_${turnoId}"]`).forEach(sel => {
+                    sel.classList.add('warning');
+                    sel.setAttribute('title', 'Faltan publicadores según la configuración');
+                });
+                errores++;
+            }
+            if (reqCapitan && !datos.capitan) {
+                const capSel = form.querySelector(`select[name="capitan_${turnoId}"]`);
+                if (capSel) {
+                    capSel.classList.add('warning');
+                    capSel.setAttribute('title', 'Falta asignar un capitán según la configuración');
+                }
+                errores++;
+            }
+
+            // agregar al mapa global de publicadores
+            todos.forEach(pubId => {
+                if (!publicadorTurnos[pubId]) publicadorTurnos[pubId] = [];
+                publicadorTurnos[pubId].push({
+                    horaInicio: datos.horaInicio,
+                    horaFin: datos.horaFin,
+                    turnoId: turnoId,
+                    form: form
+                });
+            });
+        }
+
+        // Validar solapamiento entre turnos distintos
+        for (const [pubId, asignaciones] of Object.entries(publicadorTurnos)) {
+            for (let i = 0; i < asignaciones.length; i++) {
+                const a = asignaciones[i];
+                const hiA = a.horaInicio.split(':').map(Number);
+                const hfA = a.horaFin.split(':').map(Number);
+                const startA = hiA[0]*60 + hiA[1];
+                const endA = hfA[0]*60 + hfA[1];
+
+                for (let j = i+1; j < asignaciones.length; j++) {
+                    const b = asignaciones[j];
+                    const hiB = b.horaInicio.split(':').map(Number);
+                    const hfB = b.horaFin.split(':').map(Number);
+                    const startB = hiB[0]*60 + hiB[1];
+                    const endB = hfB[0]*60 + hfB[1];
+
+                    // si hay solapamiento
+                    if (Math.max(startA, startB) < Math.min(endA, endB)) {
+                        [a, b].forEach(x => {
+                            const sel = x.form.querySelector(`select option[value="${pubId}"]:checked`);
+                            if (sel) {
+                                const s = sel.parentElement;
+                                s.classList.add('alert');
+                                s.setAttribute('title', 'Este publicador está asignado a dos turnos que se solapan');
+                            }
+                        });
+                        errores++;
+                    }
+                }
+            }
+        }
+
+        if (errores === 0) {
+            alert('✅ Todos los turnos son válidos.');
+        } else {
+            alert(`⚠ Se detectaron ${errores} posibles problemas. Revisá los campos resaltados.`);
+        }
+    });
+});
+</script>
+
+</body>
+</html>

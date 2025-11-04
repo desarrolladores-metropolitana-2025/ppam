@@ -1,0 +1,10 @@
+{
+    "turnos_consecutivos": false,
+    "dos_turnos_mismo_dia": false,
+    "validar_ausencias": true,
+    "alerta_dos_turnos": "alerta",
+    "alerta_sin_capitan": "advertencia",
+    "alerta_sin_publicadores": "alerta",
+    "alerta_un_publicador": "alerta",
+    "min_publicadores": 2
+}
