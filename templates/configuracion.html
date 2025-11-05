@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: flex;
+            align-items: center;
+            font-weight: 600;
+            gap: 10px;
+        }
+        select, input[type="number"], input[type="checkbox"] {
+            margin-left: auto;
+            padding: 5px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        input[type="checkbox"] {
+            transform: scale(1.2);
+            margin-left: 0;
+        }
+        button {
+            padding: 10px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+    <!-- Navbar -->
+    {% include 'nav_bar.html' %}
+
+        <h1>Configuración del Sistema</h1>
+
+
+
+<!-- Mensajes de creación, edición, etc -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+    {% endwith %}
+
+
+
+        <div class="card">
+            <form method="POST">
+                <!-- Configuración existente -->
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="turnos_consecutivos" {% if config.turnos_consecutivos %}checked{% endif %}>
+                        Permitir turnos consecutivos
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="dos_turnos_mismo_dia" {% if config.dos_turnos_mismo_dia %}checked{% endif %}>
+                        Permitir dos turnos en distintos puntos el mismo día
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="validar_ausencias" {% if config.validar_ausencias %}checked{% endif %}>
+                        Validar ausencias
+                    </label>
+                </div>
+
+                <hr style="margin:20px 0;">
+
+                <!-- Nuevas opciones de alerta -->
+                <div class="form-group">
+                    <label for="alerta_dos_turnos">Publicador con dos turnos en simultáneo:</label>
+                    <select name="alerta_dos_turnos" id="alerta_dos_turnos">
+                        <option value="" {% if config.alerta_dos_turnos == "" %}selected{% endif %}>Nada</option>
+                        <option value="advertencia" {% if config.alerta_dos_turnos == "advertencia" %}selected{% endif %}>Advertencia</option>
+                        <option value="alerta" {% if config.alerta_dos_turnos == "alerta" %}selected{% endif %}>Alerta</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="alerta_sin_capitan">Turno sin capitán:</label>
+                    <select name="alerta_sin_capitan" id="alerta_sin_capitan">
+                        <option value="" {% if config.alerta_sin_capitan == "" %}selected{% endif %}>Nada</option>
+                        <option value="advertencia" {% if config.alerta_sin_capitan == "advertencia" %}selected{% endif %}>Advertencia</option>
+                        <option value="alerta" {% if config.alerta_sin_capitan == "alerta" %}selected{% endif %}>Alerta</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="alerta_sin_publicadores">Turno sin publicadores:</label>
+                    <select name="alerta_sin_publicadores" id="alerta_sin_publicadores">
+                        <option value="" {% if config.alerta_sin_publicadores == "" %}selected{% endif %}>Nada</option>
+                        <option value="advertencia" {% if config.alerta_sin_publicadores == "advertencia" %}selected{% endif %}>Advertencia</option>
+                        <option value="alerta" {% if config.alerta_sin_publicadores == "alerta" %}selected{% endif %}>Alerta</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="alerta_un_publicador">Turno con un publicador solo:</label>
+                    <select name="alerta_un_publicador" id="alerta_un_publicador">
+                        <option value="" {% if config.alerta_un_publicador == "" %}selected{% endif %}>Nada</option>
+                        <option value="advertencia" {% if config.alerta_un_publicador == "advertencia" %}selected{% endif %}>Advertencia</option>
+                        <option value="alerta" {% if config.alerta_un_publicador == "alerta" %}selected{% endif %}>Alerta</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="min_publicadores">Cantidad mínima de publicadores por turno por punto:</label>
+                    <input type="number" name="min_publicadores" id="min_publicadores" min="1" value="{{ config.min_publicadores }}">
+                </div>
+
+                <button type="submit">Guardar configuración</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

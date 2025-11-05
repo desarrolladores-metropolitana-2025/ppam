@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PPAM CABA - Página Principal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .welcome-text {
+            margin-bottom: 40px;
+        }
+        .card {
+            transition: transform 0.3s, box-shadow 0.3s, opacity 0.3s;
+            opacity: 0;
+        }
+        .card.show {
+            opacity: 1;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .card-icon {
+            font-size: 2.5rem;
+            color: #0d6efd;
+        }
+        .card-button {
+            text-decoration: none;
+        }
+        @media (max-width: 576px) {
+            .card-icon {
+                font-size: 2rem;
+            }
+            .card-title {
+                font-size: 1rem;
+            }
+        }
+
+/* Aseguramos que el botón aparezca con animación */
+#logoutForm button {
+    transition: all 0.3s ease;
+    opacity: 0;
+    transform: translateY(-10px);
+}
+#logoutForm button.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Hover más sutil */
+#logoutForm button:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 6px 15px rgba(220, 53, 69, 0.3) !important;
+    background-color: #fdf0f1 !important;
+}
+
+/* RESPONSIVE: botón más chico en móviles */
+@media (max-width: 576px) {
+    #logoutForm button {
+        width: 48px !important;
+        height: 48px !important;
+        font-size: 0.6rem !important;
+    }
+    #logoutForm button i {
+        font-size: 1.1rem !important;
+    }
+    #logoutForm .card-title {
+        font-size: 0.6rem !important;
+        margin-top: 0.5rem !important;
+    }
+}
+
+/* Hover suave */
+#logoutForm button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 15px rgba(220, 53, 69, 0.25) !important;
+    background-color: #fef5f5 !important;
+}
+    </style>
+</head>
+<body class="container py-5">
+
+    <h1 class="text-center welcome-text">Bienvenido, {{ current_user.nombre }}!</h1>
+<!-- BOTÓN CERRAR SESIÓN - RESPONSIVE (más chico en móviles) -->
+    <div class="position-fixed top-0 end-0 p-2 p-sm-3 p-md-4 d-flex align-items-start gap-2" style="z-index: 1080;">
+    <form id="pubviewForm" action="{{ url_for('pubview') }}" class="m-0">
+        <button type="submit"
+                class="card card-button text-center text-decoration-none shadow-sm d-flex flex-column justify-content-center align-items-center border-0 bg-white"
+                style="width: 55px; height: 55px; font-size: 0.65rem; transition: all 0.3s ease;"
+                data-bs-toggle="tooltip"
+                data-bs-placement="left"
+                title="Vista del publicador">
+            <i class="bi bi-eye" style="font-size: 1.2rem; color: #0d6efd;"></i>
+            <div class="card-title mt-1 mb-0 fw-bold" style="font-size: 0.65rem; line-height: 1;">Vista Pub.</div>
+        </button>
+    </form>
+
+    <form id="logoutForm" action="{{ url_for('logout') }}" class="m-0">
+        <button type="submit"
+                class="card card-button text-center text-decoration-none shadow-sm d-flex flex-column justify-content-center align-items-center border-0 bg-white"
+                style="width: 55px; height: 55px; font-size: 0.65rem; transition: all 0.3s ease;"
+                data-bs-toggle="tooltip"
+                data-bs-placement="left"
+                title="Cerrar sesión">
+            <i class="bi bi-box-arrow-right" style="font-size: 1.2rem; color: #dc3545;"></i>
+            <div class="card-title mt-1 mb-0 fw-bold" style="font-size: 0.65rem; line-height: 1;">Salir</div>
+        </button>
+    </form>
+</div>
+
+
+
+    <div class="row g-4">
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('publicadores_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Gestiona todos los publicadores">
+                <i class="bi bi-people card-icon"></i>
+                <div class="card-title mt-2">Publicadores</div>
+            </a>
+        </div>
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('puntos_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Administra los puntos de predicación">
+                <i class="bi bi-geo-alt card-icon"></i>
+                <div class="card-title mt-2">Puntos de Predicación</div>
+            </a>
+        </div>
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('solicitudes_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Administra todas las solicitudes de turnos de los publicadores">
+                <i class="bi bi-card-checklist card-icon"></i>
+                <div class="card-title mt-2">Solicitudes de turnos</div>
+            </a>
+        </div>
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('ausencias_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Gestiona ausencias de los publicadores">
+                <i class="bi bi-calendar-x card-icon"></i>
+                <div class="card-title mt-2">Ausencias</div>
+            </a>
+        </div>
+
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('experiencias_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Revisa y agrega experiencias o anuncios">
+                <i class="bi bi-journal-text card-icon"></i>
+                <div class="card-title mt-2">Experiencias y anuncios</div>
+            </a>
+        </div>
+
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('turnos_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Crea nuevos turnos y asigna a los publicadores manual o automáticamente">
+                <i class="bi bi-clock card-icon"></i>
+                <div class="card-title mt-2">Turnos</div>
+            </a>
+        </div>
+
+
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('planificacion_index') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Permite publicar los turnos, notificando a los publicadores">
+                <i class="bi bi-kanban card-icon"></i>
+                <div class="card-title mt-2">Planificación</div>
+            </a>
+        </div>
+
+        <div class="col-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('configuracion') }}" class="card card-button text-center text-decoration-none shadow-sm p-3" data-bs-toggle="tooltip" data-bs-placement="top" title="Opciones de configuración de la app">
+                <i class="bi bi-gear card-icon"></i>
+                <div class="card-title mt-2">Configuración</div>
+            </a>
+        </div>
+
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+ <script>
+    window.addEventListener('DOMContentLoaded', () => {
+        const cards = document.querySelectorAll('.card');
+        cards.forEach((card, i) => {
+            setTimeout(() => {
+                card.classList.add('show');
+            }, i * 200); // un poco más rápido
+        });
+
+        // Animar botón de logout (último)
+        const logoutBtn = document.querySelector('#logoutForm button');
+        if (logoutBtn) {
+            setTimeout(() => {
+                logoutBtn.classList.add('show');
+            }, cards.length * 200 + 100);
+        }
+    });
+
+    // Tooltips
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(el => new bootstrap.Tooltip(el));
+</script>
+
+
+</body>
+</html>
