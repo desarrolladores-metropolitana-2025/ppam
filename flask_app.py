@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta, date, time
 # from turnos import api
 from turnos import bp_turnos
+from postulantes import bp_post
 # -------------------------------------------
 # Singletons de extensiones
 # -------------------------------------------
@@ -43,6 +44,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 app = Flask(__name__)
 app.register_blueprint(bp_turnos)
+app.register_blueprint(bp_post)
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)
