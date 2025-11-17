@@ -1,0 +1,255 @@
+/* app_turnos.css - estilos PPAM responsive */
+/* Sistema PPAM */
+:root{
+  --ppam-blue-1: #13284f;
+  --ppam-blue-2: #1f3b75;
+  --ppam-light: #eef4ff;
+  --accent: #1d76c6;
+  --pill-shadow: 6px 6px 12px rgba(0,0,0,0.18), -6px -6px 12px rgba(255,255,255,0.6);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI", Roboto, Arial, sans-serif;background:#e6e6e6;color:#222}
+.ppam-shell{max-width:980px;margin:0 auto;padding:8px}
+
+/* header */
+.app-header{background:linear-gradient(180deg,var(--ppam-blue-1),var(--ppam-blue-2));color:#fff;padding:18px;border-radius:6px;display:flex;align-items:center;gap:16px}
+.app-logo{height:68px}
+.app-title{font-weight:800;font-size:20px}
+.app-title span{font-size:12px;opacity:.9}
+
+/* sections */
+.app-main{padding:14px}
+
+/* puntos grid */
+.puntos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:8px}
+.punto-card{background:linear-gradient(145deg,#fff,#e6e6e9);padding:14px;border-radius:18px;text-align:center;font-weight:800;box-shadow:var(--pill-shadow);text-decoration:none;color:#062b57}
+.punto-card:hover{transform:translateY(-6px);transition:transform .12s}
+
+/* calendar */
+.calendar-card{background:#fff;padding:12px;border-radius:12px;box-shadow:0 8px 18px rgba(0,0,0,.08);margin-bottom:12px}
+.calendar-controls{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ctrl{background:#f0f0f0;border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+.month-label{font-weight:800;color:#0b3a5d}
+.calendar-root{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.calendar-root .day{background:#fafafa;border-radius:6px;padding:10px;text-align:center;min-height:64px;box-shadow:inset 0 2px 6px rgba(255,255,255,0.9);cursor:pointer}
+.calendar-root .day.day-empty{background:transparent;cursor:default;box-shadow:none;color:#ccc}
+.calendar-root .day.day-green{background:linear-gradient(180deg,#bfe8bb,#7ecf7d);color:#073a18;font-weight:800}
+.calendar-root .day.day-orange{background:linear-gradient(180deg,#ffd39a,#ffb26a);color:#7a3b00;font-weight:800}
+.calendar-root .day.day-dark{background:linear-gradient(180deg,#1f7d4b,#14472d);color:#fff;font-weight:900}
+
+/* turnos panel */
+.turnos-panel{background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.12);margin-top:12px}
+.card-hidden{display:none}
+.turnos-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.btn-small{background:linear-gradient(180deg,#1d76c6,#136bb2);color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+.turnos-list .turno-item{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;background:#f8fafc;margin-bottom:8px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.6)}
+.turno-meta{font-weight:800}
+.turno-actions button{background:linear-gradient(180deg,#4fa7a7,#2f8f8f);color:#fff;border:none;padding:8px 10px;border-radius:8px;cursor:pointer}
+
+/* global turnos grid */
+.turnos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.turno-card{background:#fff;padding:12px;border-radius:12px;box-shadow:0 8px 18px rgba(0,0,0,.08)}
+.loader{padding:16px;text-align:center;color:#666}
+
+/* Día con turnos disponibles */
+.day-green {
+  background: linear-gradient(to bottom, #c8f7c5, #91e56b);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);
+  color: #1b5e20;
+}
+
+/* Día con varios turnos abiertos */
+.day-orange {
+  background: linear-gradient(to bottom, #ffe0b2, #ffb74d);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);
+  color: #e65100;
+}
+
+/* Día actual (oscuro / resaltado) */
+.day-dark {
+  background: linear-gradient(to bottom, #9fa8da, #3f51b5);
+  box-shadow: inset 0 1px 3px rgba(255,255,255,0.4);
+  color: #fff;
+  font-weight: 800;
+}
+
+.day {
+  text-align: center;
+  padding: 8px 0;
+  border-radius: 8px;
+  font-weight: 600;
+  margin: 3px;
+  transition: transform 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.day:hover {
+  transform: scale(1.05);
+}
+
+.day-green {
+  background-color: #55c373 !important; /* verde PPAM */
+  color: #fff;
+}
+
+.day-orange {
+  background-color: #f4a261 !important;
+  color: #fff;
+}
+
+.day-yellow {
+  background-color: #f7dc6f !important;
+  color: #222;
+}
+
+.day-gray {
+  background-color: #95a5a6 !important;
+  color: #fff;
+}
+
+.day-dark {
+  background-color: #2c3e50 !important;
+  color: #fff;
+}
+.day-purple {
+  background-color: #9900cc !important;
+  color: #fff;
+}
+.day-blue {
+  background-color: #6699ff !important;
+  color: #fff;
+}
+.day-red {
+  background-color: #ff5c33 !important;
+  color: #fff;
+}
+.day-mustard {
+  background-color: #999966 !important;
+  color: #fff;
+}
+
+
+/* Leyenda del calendario */
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-top: 14px;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.calendar-legend div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-legend .dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-block;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+
+/* Transición al cambiar de mes 
+.calendar {
+  position: relative;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.calendar.fade-out {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.calendar.fade-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+      */
+	  
+/* Transiciones suaves al cambiar de mes */
+/* Calendario con estructura de cuadrícula y animación de transición */
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  position: relative;
+  transition: transform 0.45s ease, opacity 0.45s ease;
+  will-change: transform, opacity;
+}
+
+/* Animaciones de salida */
+.calendar.slide-left {
+  opacity: 0;
+  transform: translateX(-40px);
+}
+
+.calendar.slide-right {
+  opacity: 0;
+  transform: translateX(40px);
+}
+
+/* Animación del título del mes */
+#calMonthLabel {
+  display: inline-block;
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+#calMonthLabel.fade-out {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+#calMonthLabel.fade-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
+
+/* Reusa los colores de los días 
+.day-green  { background-color: #3aa757; color: #fff; }
+.day-orange { background-color: #f4a261; color: #fff; }
+.day-yellow { background-color: #f7dc6f; color: #222; }
+.day-gray   { background-color: #95a5a6; color: #fff; }
+.day-dark   { background-color: #2c3e50; color: #fff; }
+*/
+
+/* Día seleccionado */
+.day.selected {
+  outline: 3px solid #34a853; /* verde PPAM */
+  box-shadow: 0 0 10px rgba(52,168,83,0.4);
+  border-radius: 6px;
+  transform: scale(1.05);
+  transition: all 0.15s ease-in-out;
+}
+
+/* Efecto hover (solo en escritorio) */
+@media (hover: hover) {
+  .day:hover {
+    cursor: pointer;
+    background: linear-gradient(180deg, #e8f5e9, #d0f0d3); /* verde claro */
+    box-shadow: 0 0 6px rgba(52,168,83,0.3);
+    transform: scale(1.03);
+    transition: all 0.15s ease-in-out;
+  }
+}
+
+
+/* efecto al hacer clic (animación rápida) */
+.day:active {
+  transform: scale(0.95);
+}
+
+
+
+/* responsive tweaks */
+@media(max-width:720px){
+  .app-header{padding:12px}
+  .app-logo{height:56px}
+  .calendar-root .day{min-height:58px;padding:8px}
+}

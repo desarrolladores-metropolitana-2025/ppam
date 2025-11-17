@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from app import db
-from models import PuntoPredicacion
+from modelos import PuntoPredicacion
 
 bp_puntos = Blueprint('puntos', __name__)
 

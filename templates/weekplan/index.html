@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gestión de Turnos</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- CSS locales -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app_turnos.css') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='imagenes/logo_ppam.png') }}">
+
+  <style>
+    body { background: #f3f4f6; font-family: sans-serif; }
+    .ppam-logo { width: 40px; transition: transform 0.25s ease; }
+    .ppam-logo:hover { transform: scale(0.95); opacity: 0.9; }
+  </style>
+</head>
+
+<body class="bg-gray-100 font-sans">
+
+  <!-- 🔷 Encabezado -->
+  <header class="bg-blue-600 text-white p-4 flex justify-between items-center">
+    <a href="https://metropoliplan.appwebterritorios.com" title="Volver atrás">⟵ Inicio</a>
+    <h1 class="text-lg font-semibold">Gestión de Turnos — PPAM 2025</h1>
+    <img src="{{ url_for('static', filename='imagenes/logo_ppam.png') }}" alt="PPAM logo" class="ppam-logo">
+  </header>
+
+  <!-- 🔹 Contenedor principal -->
+  <main class="p-4">
+    <h2 class="text-xl font-bold mb-2">Panel de planificación de turnos</h2>
+
+     <!-- TAB PLANIFICAR -->
+    <div id="tab-planificar" class="tab-content hidden">
+	<div id="planificador_turnos" class="hidden"></div>
+      <div class="flex justify-between items-center mb-4">     	
+     </div>
+     </div>	  
+
+    <div class="mt-4 flex gap-3">
+      <button id="cargarTurnosBtn" class="bg-blue-500 text-white px-3 py-1 rounded">Cargar Turnos</button>
+	   <button onclick="mostrarTab('planificar')" class="tab-btn px-4 py-2 bg-indigo-500 text-white rounded ">Planificar Turnos</button>&nbsp;
+      <button id="asignarTurno" class="bg-emerald-500 text-white px-3 py-1 rounded">Asignar AUTO</button>
+      <button onclick="mostrarTab('pipeline')" class="bg-purple-600 text-white px-3 py-1 rounded">Ver flujo Bot</button>
+	  
+    </div>
+
+    <div id="turnosList" class="mt-4 grid gap-4"></div>
+
+    <!-- 🔸 Pipeline -->
+    <section id="tab-pipeline" class="hidden mt-6">
+      <h3 class="text-lg font-semibold mb-2">Flujo del Bot Asignador</h3>
+      <button onclick="actualizarPipeline()" class="bg-blue-500 text-white px-3 py-1 rounded">Actualizar</button>
+      <pre id="pipelineOutput" class="bg-black text-green-300 font-mono text-xs p-3 rounded overflow-y-auto h-[400px] whitespace-pre-wrap mt-3">(sin datos)</pre>
+    </section>
+  </main>
+
+  <!-- 🔸 Scripts -->
+  <script src="{{ url_for('static', filename='js/planificador_interactivo_flask.js') }}"></script>
+  <script>
+  // cuando se muestra el tab de entorno, cargar las configuraciones	
+	function mostrarTab(tab) {
+  document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
+  const activeTab = document.getElementById("tab-" + tab);
+  activeTab.classList.remove("hidden");
+
+  // 🔹 Desoculta elementos internos del tab
+  activeTab.querySelectorAll(".hidden").forEach(el => el.classList.remove("hidden"));
+
+  if (tab === "entorno") {
+    cargarConfiguraciones();
+    }
+	
+	/* if (tab === "turnos" || tab === "puntos" || tab === "solicitudes") {
+  
+      } */
+	  
+  if (tab === "planificar") {
+    PlanificadorInteractivo.init();
+    }
+	
+	if (tab === "turnos") {
+    document.getElementById("modalCrear").classList.add("hidden");
+    }
+	
+	
+}
+  </script>
+</body>
+</html>

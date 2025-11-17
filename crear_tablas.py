@@ -1,5 +1,6 @@
 # crear_tablas.py
-from flask_app import create_app, db
+from extensiones import db
+from flask_app import create_app
 
 app = create_app()
 
