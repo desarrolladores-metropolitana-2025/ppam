@@ -32,13 +32,18 @@ def turno_to_dict(t: Turno):
 @bp_turnos.route("/turnos", methods=["GET", "POST"])
 def api_turnos():
     accion = request.args.get("accion") or request.form.get("accion") or (request.get_json(silent=True) or {}).get("accion")
+
+    # ---------------------
     # LISTAR simple (array)
+    # ---------------------
     if accion == "listar":
         turnos = Turno.query.order_by(Turno.fecha, Turno.hora_inicio).all()
         data = [turno_to_dict(t) for t in turnos]
         return jsonify(data)
 
-    # LISTAR POR RANGO -> devuelve objeto agrupado por fecha (igual al PHP)
+    # ---------------------
+    # LISTAR POR RANGO -> objeto agrupado por fecha (igual al PHP)
+    # ---------------------
     if accion == "listar_por_rango":
         desde = request.args.get("desde")
         hasta = request.args.get("hasta")
@@ -62,7 +67,21 @@ def api_turnos():
             out.setdefault(key, []).append(turno_to_dict(t))
         return jsonify(out)
 
+    # ---------------------
+    # GET por id
+    # ---------------------
+    if accion == "get":
+        turno_id = request.args.get("id", type=int)
+        if not turno_id:
+            return jsonify({"error":"id faltante"}), 400
+        t = Turno.query.get(turno_id)
+        if not t:
+            return jsonify({"error":"turno no encontrado"}), 404
+        return jsonify(turno_to_dict(t))
+
+    # ---------------------
     # CREAR MANUAL (POST JSON) - crear turno puntual
+    # ---------------------
     if accion == "crear_manual" and request.method == "POST":
         data = request.get_json(force=True)
         fecha = data.get("fecha")
@@ -81,7 +100,7 @@ def api_turnos():
             p = PuntoPredicacion.query.filter(PuntoPredicacion.punto_nombre == str(punto_id)).first()
             punto_id = p.id if p else None
 
-        # calcular dia de semana (string)
+        # calcular dia de semana (string en español)
         dia = fecha_obj.strftime("%A").lower() if fecha_obj else None
         mapping = {
             "monday":"lunes","tuesday":"martes","wednesday":"miercoles","thursday":"jueves",
@@ -101,11 +120,14 @@ def api_turnos():
         db.session.commit()
         return jsonify({"ok": True, "id": nuevo.id, "turno": turno_to_dict(nuevo)})
 
+    # ---------------------
     # ASIGNAR MANUAL (POST JSON) - asigna usuario al primer slot libre
+    # ---------------------
     if accion == "asignar_manual" and request.method == "POST":
         data = request.get_json(force=True)
         turno_id = data.get("turno_id")
         usuario_id = data.get("usuario_id")
+        rol = data.get("rol")  # opcional
         if not turno_id or not usuario_id:
             return jsonify({"ok": False, "error": "falta turno_id o usuario_id"}), 400
         t = Turno.query.get(turno_id)
@@ -125,7 +147,63 @@ def api_turnos():
                 return jsonify({"ok": True, "turno": turno_to_dict(t)})
         return jsonify({"ok": False, "error": "No hay slots libres"}), 400
 
+    # ---------------------
+    # DESASIGNAR (POST JSON) - quitar usuario de un slot concreto
+    # body: { turno_id, usuario_id }
+    # ---------------------
+    if accion == "desasignar" and request.method == "POST":
+        data = request.get_json(force=True)
+        turno_id = data.get("turno_id")
+        usuario_id = data.get("usuario_id")
+        if not turno_id or not usuario_id:
+            return jsonify({"ok": False, "error": "falta turno_id o usuario_id"}), 400
+        t = Turno.query.get(turno_id)
+        if not t:
+            return jsonify({"ok": False, "error": "Turno no encontrado"}), 404
+
+        changed = False
+        for slot in ("publicador1_id","publicador2_id","publicador3_id","publicador4_id"):
+            if getattr(t, slot) == int(usuario_id):
+                setattr(t, slot, None)
+                changed = True
+        if changed:
+            db.session.commit()
+            return jsonify({"ok": True, "turno": turno_to_dict(t)})
+        return jsonify({"ok": False, "error": "Usuario no encontrado en ese turno"}), 400
+
+    # ---------------------
+    # SET CAPITAN (POST JSON): { turno_id, capitan_id }
+    # ---------------------
+    if accion == "set_capitan" and request.method == "POST":
+        data = request.get_json(force=True)
+        turno_id = data.get("turno_id")
+        capitan_id = data.get("capitan_id")
+        if not turno_id:
+            return jsonify({"ok": False, "error": "falta turno_id"}), 400
+        t = Turno.query.get(turno_id)
+        if not t:
+            return jsonify({"ok": False, "error": "Turno no encontrado"}), 404
+        t.capitan_id = int(capitan_id) if capitan_id else None
+        db.session.commit()
+        return jsonify({"ok": True, "turno": turno_to_dict(t)})
+
+    # ---------------------
+    # ELIMINAR TURNO (POST/GET)
+    # ---------------------
+    if accion == "eliminar" and request.method in ("POST","GET"):
+        turno_id = request.args.get("id") or (request.get_json(silent=True) or {}).get("turno_id")
+        if not turno_id:
+            return jsonify({"ok": False, "error": "falta id"}), 400
+        t = Turno.query.get(int(turno_id))
+        if not t:
+            return jsonify({"ok": False, "error": "Turno no encontrado"}), 404
+        db.session.delete(t)
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    # ---------------------
     # PUNTOS DISPONIBLES para una fecha (filtrar por horario del día)
+    # ---------------------
     if accion == "puntos_disponibles":
         fecha = request.args.get("fecha")
         try:
@@ -133,8 +211,7 @@ def api_turnos():
         except Exception:
             fecha_obj = date.today()
 
-        weekday = fecha_obj.weekday()  # 0 lunes ... 6 domingo? (Python: 0 lunes)
-        # Map weekday -> attribute names
+        weekday = fecha_obj.weekday()  # 0 lunes ... 6 domingo (Python)
         dias = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"]
         attr_inicio = f"{dias[weekday]}_inicio"
         attr_fin = f"{dias[weekday]}_fin"
@@ -144,8 +221,7 @@ def api_turnos():
         for p in puntos:
             inicio = getattr(p, attr_inicio)
             fin = getattr(p, attr_fin)
-            # verificar rango de fechas del punto
-            if p.fecha_inicio and fecha_obj < p.fecha_inicio: 
+            if p.fecha_inicio and fecha_obj < p.fecha_inicio:
                 continue
             if p.fecha_fin and fecha_obj > p.fecha_fin:
                 continue
