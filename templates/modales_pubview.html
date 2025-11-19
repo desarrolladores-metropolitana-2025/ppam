@@ -1,4 +1,37 @@
 <!-- MODAL: Nuevo Turno Fijo -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+
+    const eventos = [
+        {% for r in reemplazos %}
+        {
+            title: "{{ r.servicio.nombre if r.servicio else 'Vacante' }}",
+            start: "{{ r.fecha.isoformat() }}T{{ (r.hora_inicio|string).zfill(5) }}",
+            end: "{{ r.fecha.isoformat() }}T{{ (r.hora_fin|string).zfill(5) }}"
+        },
+        {% endfor %}
+    ];
+
+    console.log("EVENTOS CARGADOS:", eventos);
+
+    let calendarEl = document.getElementById('calendar');
+
+    let calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        locale: 'es',
+        allDaySlot: false,
+        slotMinTime: "06:00:00",
+        slotMaxTime: "23:00:00",
+        events: eventos
+    });
+
+    calendar.render();
+});
+</script>
+
+
+
 <div class="modal fade" id="turnoModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -250,41 +283,132 @@
   </div>
 </div>
 
-
 <!-- MODAL: Reemplazos -->
 <div class="modal fade" id="reemplazosModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
+
       <div class="modal-header">
         <h5 class="modal-title">Reemplazos disponibles</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
+
+      <!-- 🔥 ESTA ES LA ÚNICA PARTE QUE CAMBIÓ -->
       <div class="modal-body">
+
         {% if reemplazos %}
-          <div class="list-group">
-            {% for r in reemplazos %}
-              <div class="list-group-item d-flex justify-content-between align-items-center">
-                <div>
-                  <strong>{{ r.punto_nombre }}</strong><br>
-                  <small>{{ r.dia }} — {{ r.hora_inicio }} a {{ r.hora_fin }}</small>
-                </div>
-                <form action="{{ url_for('tomar_reemplazo', turno_id=r.id) }}" method="post">
 
-                  <button class="btn btn-warning btn-sm">
-                    Hay vacantes ({{ r.vacantes }})
-                  </button>
+        <style>
+          .calendar-wrapper {
+            width: 100%;
+            overflow-x: auto;
+          }
 
-                </form>
-              </div>
+          .calendar-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(7, 1fr);
+            border: 1px solid #ccc;
+            font-size: 13px;
+          }
+
+          .calendar-header {
+            background: #f0f0f0;
+            font-weight: bold;
+            padding: 6px;
+            border-bottom: 1px solid #ccc;
+            text-align: center;
+          }
+
+          .hour-cell {
+            border-bottom: 1px solid #eee;
+            padding: 6px;
+            text-align: right;
+            background: #fafafa;
+            font-weight: bold;
+          }
+
+          .calendar-cell {
+            border: 1px solid #eee;
+            height: 60px;
+            position: relative;
+          }
+
+          .slot-block {
+            position: absolute;
+            left: 4px;
+            right: 4px;
+            top: 4px;
+            bottom: 4px;
+            background: #ffe7a3;
+            border-left: 4px solid #d0a13d;
+            padding: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            overflow: hidden;
+          }
+
+          .slot-block:hover {
+            background: #ffd67a;
+          }
+
+        </style>
+
+        {% set dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"] %}
+        {% set horas = [
+          "08:00","09:00","10:00","11:00","12:00",
+          "13:00","14:00","15:00","16:00","17:00",
+          "18:00","19:00","20:00"
+        ] %}
+
+        <div class="calendar-wrapper">
+          <div class="calendar-grid">
+
+            <!-- Esquina vacía -->
+            <div></div>
+
+            <!-- Encabezados días -->
+            {% for d in dias %}
+              <div class="calendar-header">{{ d }}</div>
             {% endfor %}
+
+            <!-- Filas por hora -->
+            {% for h in horas %}
+              <div class="hour-cell">{{ h }}</div>
+
+              {% for d in dias %}
+                <div class="calendar-cell">
+
+                  {% for r in reemplazos if r.dia == d and r.hora_inicio == h %}
+
+                    <form action="{{ url_for('tomar_reemplazo', turno_id=r.id) }}" method="post">
+                      <div class="slot-block" onclick="this.parentElement.submit()">
+                        <strong>{{ r.hora_inicio }}–{{ r.hora_fin }}</strong><br>
+                        {{ r.punto_nombre }}<br>
+                        <small>Vacantes: {{ r.vacantes }}</small>
+                      </div>
+                    </form>
+
+                  {% endfor %}
+
+                </div>
+              {% endfor %}
+
+            {% endfor %}
+
           </div>
+        </div>
+
         {% else %}
           <p class="text-muted text-center m-3">No hay reemplazos disponibles por ahora.</p>
         {% endif %}
+
       </div>
+      <!-- 🔥 FIN DE LA PARTE MODIFICADA -->
+
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
       </div>
+
     </div>
   </div>
 </div>

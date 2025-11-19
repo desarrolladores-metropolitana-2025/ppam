@@ -995,7 +995,8 @@ def autocompletar_turnos(turnos):
     total_vacantes = 0
     asignados = 0
 
-    solicitudes = SolicitudTurno.query.all()
+    solicitudes = SolicitudTurno.query.filter_by(prioridad=100).all()
+
     ausencias = Ausencia.query.all()
 
     # Mapeo de ausencias

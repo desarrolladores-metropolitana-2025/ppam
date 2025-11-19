@@ -271,8 +271,12 @@
                         <input type="time" name="hora_fin" id="hora_fin" value="{{ solicitud.hora_fin.strftime('%H:%M') if solicitud else '' }}" required>
                     </div>
                     <div class="form-group">
-                        <label for="prioridad">Prioridad</label>
-                        <input type="text" name="prioridad" id="prioridad" value="{{ solicitud.prioridad if solicitud else 100 }}" required>
+                        <label for="prioridad">¿Turno Fijo?</label>
+                        <select name="prioridad" id="prioridad" required>
+                            <option value="0"  {% if solicitud and solicitud.prioridad != 100 %}selected{% endif %}>No</option>
+                            <option value="100" {% if not solicitud or solicitud.prioridad == 100 %}selected{% endif %}>Sí</option>
+                        </select>
+
                     </div>
                     <div class="form-group">
                         <label for="frecuencia">Frecuencia</label>
@@ -351,27 +355,39 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- Inicializar DataTables -->
-    <script>
-        $(document).ready(function() {
-            $('#solicitudesTable').DataTable({
-                paging: true,
-                searching: true,
-                ordering: true,
-                info: true,
-                responsive: true,
-                language: {
-                    search: "_INPUT_",
-                    searchPlaceholder: "Buscar en todas las columnas...",
-                    lengthMenu: "Mostrar _MENU_ registros",
-                    info: "Mostrando _START_ a _END_ de _TOTAL_ registros",
-                    paginate: {
-                        previous: "Anterior",
-                        next: "Siguiente"
+<script>
+    $(document).ready(function() {
+        $('#solicitudesTable').DataTable({
+            paging: true,
+            searching: true,
+            ordering: true,
+            info: true,
+            responsive: true,
+            language: {
+                search: "_INPUT_",
+                searchPlaceholder: "Buscar en todas las columnas...",
+                lengthMenu: "Mostrar _MENU_ registros",
+                info: "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                paginate: {
+                    previous: "Anterior",
+                    next: "Siguiente"
+                }
+            },
+            dom: '<"row mb-3"<"col-sm-6"f><"col-sm-6 text-end"l>>rtip',
+
+            columnDefs: [
+                {
+                    targets: 8, // columna 9
+                    title: "Turno fijo",  // 🔥 CAMBIA EL ENCABEZADO AQUÍ
+                    render: function(data) {
+                        return data == 100 ? "Sí" : "No";
                     }
-                },
-                dom: '<"row mb-3"<"col-sm-6"f><"col-sm-6 text-end"l>>rtip'
-            });
+                }
+            ]
         });
-    </script>
+    });
+</script>
+
+
 </body>
 </html>
