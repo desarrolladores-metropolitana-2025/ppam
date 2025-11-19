@@ -1,31 +1,44 @@
-/**
- * planificador_interactivo_flask.js
- * Versión modernizada + migración completa del planificador original.
- * - Usa endpoints Flask: /api/turnos (accion=listar_por_rango, crear_manual, asignar_manual, puntos_disponibles)
- *                        /api/postulantes (accion=listar_disponibles, validar_disponibilidad)
- * - Interfaz moderna (clases compatibles con Bootstrap)
- * - Limpia código redundante y centraliza helpers
- *
- * Reemplazar el archivo actual por este. No requiere librerías externas aparte de Bootstrap (opcional).
- */
+/* planificador_interactivo_flask_full_v2.js
+   Versión migrada y completada para Flask (oct 2025)
+   - Usa endpoints:
+       /api/turnos?accion=...
+       /api/postulantes?accion=...
+   - Opción C: usa los nombres cargados en memoria (usuarios[]) al asignar
+*/
 
 (function () {
   if (window.PlanificadorInteractivo && window.PlanificadorInteractivo._initialized) return;
 
+  // --- API bases (Flask)
   const apiBaseTurnos = "/api/turnos";
   const apiBasePost = "/api/postulantes";
 
-  // ------------------------
-  // Helpers
-  // ------------------------
-  function safeFetch(url, opts = {}) {
-    return fetch(url, opts).then(async res => {
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status} - ${text || res.statusText}`);
-      }
-      return res.json().catch(() => ({}));
-    });
+  // Estado
+  let usuarios = [];
+  let turnos = [];
+  let semanaInicial = null;
+  let offsetSemanas = 0;
+  let resumen = {
+    totalAsignados: 0,
+    turnosCompletos: 0,
+    turnosVacantes: 0,
+    conflictos: []
+  };
+
+  // ---------------- utility ----------------
+  function padTimeToHHMM(t) {
+    if (!t) return t;
+    const parts = t.split(':');
+    const hh = String(parts[0] || '0').padStart(2,'0');
+    const mm = String(parts[1] || '00').padStart(2,'0');
+    return `${hh}:${mm}`;
+  }
+
+  function sumarHoras(horaStr, horasASumar) {
+    const [horas, minutos] = horaStr.split(':').map(Number);
+    const fechaTemp = new Date();
+    fechaTemp.setHours(horas + horasASumar, minutos || 0, 0);
+    return `${String(fechaTemp.getHours()).padStart(2,'0')}:${String(fechaTemp.getMinutes()).padStart(2,'0')}`;
   }
 
   function formatISOlocal(date) {
@@ -35,784 +48,802 @@
     return `${y}-${m}-${d}`;
   }
 
-  function parseDateLocal(iso) {
-    if (!iso) return null;
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  }
-
-  function timeToHHMM(t) {
-    if (!t) return "";
-    // t can be "8:00" or "08:00:00"
-    const parts = t.split(":");
-    return `${String(parts[0]||"0").padStart(2,"0")}:${String(parts[1]||"00").padStart(2,"0")}`;
-  }
-
-  // centralizar mensajes pequeños (overlay en celda)
-  function mostrarAvisoCelda(celda, mensaje, tipo = "info") {
-    if (!celda) return;
-    const aviso = document.createElement("div");
-    aviso.className = `position-absolute small text-white px-2 py-1 rounded ${tipo === "ok" ? "bg-success" : tipo === "error" ? "bg-danger" : "bg-secondary"}`;
-    aviso.style.top = "6px";
-    aviso.style.left = "6px";
-    aviso.style.zIndex = 6000;
-    aviso.textContent = mensaje;
-    celda.appendChild(aviso);
-    setTimeout(() => {
-      aviso.style.opacity = "0";
-      setTimeout(() => aviso.remove(), 350);
-    }, 1400);
-  }
-
-  // ------------------------
-  // Estado interno
-  // ------------------------
-  let turnos = [];      // array plano de turnos con { fecha, hora_inicio, hora_fin, punto, ... }
-  let usuarios = [];    // lista de publicadores (para arrastrar)
-  let semanaInicial = null; // Date (lunes)
-  let offsetSemanas = 0;
-
-  // ------------------------
-  // UI builder (bootstrap-friendly)
-  // ------------------------
-  function buildLayout(root) {
-    root.innerHTML = `
-      <div class="d-flex gap-3">
-        <aside id="pi_sidebar" class="bg-white border rounded p-3" style="width:320px; max-height:80vh; overflow:auto;">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Publicadores</h5>
-            <div>
-              <button id="pi_reload_btn" class="btn btn-sm btn-outline-secondary">Recargar</button>
-            </div>
-          </div>
-          <div id="pi_sidebar_users" class="list-group list-group-flush"></div>
-        </aside>
-
-        <main class="flex-fill">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <div>
-              <button id="btnVistaSemanal" class="btn btn-primary btn-sm me-2">📆 Vista semanal</button>
-              <button id="btnVistaDiaria" class="btn btn-outline-primary btn-sm d-none">← Volver</button>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <input id="pi_fecha_input" type="date" class="form-control form-control-sm" />
-              <select id="pi_filtro_punto" class="form-select form-select-sm ms-2" style="width:240px;">
-                <option value="">Todos los puntos</option>
-              </select>
-            </div>
-          </div>
-
-          <div id="pi_contenedor_diario" class="mb-3">
-            <div class="card">
-              <div class="card-body p-2" id="lista_diaria_area">
-                <!-- Vista diaria: lista de turnos y drag zone -->
-                <div id="turnosListPlanif" class="row gx-2 gy-2"></div>
-              </div>
-            </div>
-          </div>
-
-          <div id="pi_contenedor_semanal" class="d-none">
-            <div id="tituloSemana" class="mb-2 fw-bold"></div>
-            <div class="d-flex mb-2 gap-2">
-              <button id="btnPrevSemana" class="btn btn-outline-secondary btn-sm">◀</button>
-              <button id="btnNextSemana" class="btn btn-outline-secondary btn-sm">▶</button>
-            </div>
-            <div id="gridSemana" class="position-relative border rounded p-2 bg-white" style="min-height:320px; overflow:auto;"></div>
-          </div>
-        </main>
-
-        <aside id="pi_resumen" class="bg-light border rounded p-3" style="width:260px;">
-          <h6>Resumen</h6>
-          <div id="panelResumen" class="small"></div>
-        </aside>
-      </div>
-    `;
-  }
-
-  // ------------------------
-  // Cargas iniciales (usuarios + puntos + turnos)
-  // ------------------------
-  async function cargarUsuarios() {
-    // llamamos a listar_disponibles para mostrar publicadores disponibles (sin filtros)
-    try {
-      const url = `${apiBasePost}?accion=listar_disponibles`;
-      const data = await safeFetch(url);
-      // Si endpoint devuelve array
-      usuarios = Array.isArray(data) ? data : (data.pubs || []);
-    } catch (err) {
-      console.warn("cargarUsuarios:", err);
-      usuarios = [];
-    }
-  }
-
-  async function cargarTurnosPorRango(desdeISO, hastaISO) {
-    try {
-      const url = `${apiBaseTurnos}?accion=listar_por_rango&desde=${desdeISO}&hasta=${hastaISO}`;
-      const data = await safeFetch(url);
-      // El backend devuelve objeto { "YYYY-MM-DD": [turnos...] }
-      // Lo convertimos a array plano con campo fecha
-      const flat = [];
-      Object.entries(data || {}).forEach(([fecha, arr]) => {
-        (arr || []).forEach(t => flat.push({ ...t, fecha }));
-      });
-      turnos = flat;
-      return turnos;
-    } catch (err) {
-      console.error("cargarTurnosPorRango:", err);
-      turnos = [];
-      return [];
-    }
-  }
-
-  async function cargarPuntosDisponibles(fechaISO) {
-    try {
-      const url = `${apiBaseTurnos}?accion=puntos_disponibles&fecha=${fechaISO}`;
-      return await safeFetch(url);
-    } catch (err) {
-      console.warn("cargarPuntosDisponibles:", err);
-      return [];
-    }
-  }
-
-  // ------------------------
-  // Render listado diario (cards)
-  // ------------------------
-  function renderUsuariosList(container) {
-    container.innerHTML = "";
-    if (!usuarios || usuarios.length === 0) {
-      container.innerHTML = `<div class="text-muted small">No hay publicadores disponibles</div>`;
-      return;
-    }
-    usuarios.forEach(u => {
-      const item = document.createElement("div");
-      item.className = "list-group-item d-flex justify-content-between align-items-center draggable-user";
-      item.style.cursor = "grab";
-      item.draggable = true;
-      item.dataset.userId = u.id;
-      item.innerHTML = `<div>${u.nombre || u.full_name || u.usuario || "Usuario"}</div><small class="text-muted">${u.apellido || ""}</small>`;
-      item.addEventListener("dragstart", e => {
-        e.dataTransfer.setData("userId", u.id);
-        e.dataTransfer.effectAllowed = "move";
-      });
-      container.appendChild(item);
-    });
-  }
-
-  function renderTurnosList(container) {
-    container.innerHTML = "";
-    if (!turnos || turnos.length === 0) {
-      container.innerHTML = `<div class="text-muted small">No hay turnos programados</div>`;
-      return;
-    }
-    // Agrupar por fecha
-    const grupos = {};
-    turnos.forEach(t => {
-      grupos[t.fecha] = grupos[t.fecha] || [];
-      grupos[t.fecha].push(t);
-    });
-    const fechas = Object.keys(grupos).sort();
-
-    fechas.forEach(fecha => {
-      const col = document.createElement("div");
-      col.className = "mb-3";
-      const fechaH = parseDateLocal(fecha);
-      col.innerHTML = `<div class="fw-semibold mb-1">${fechaH ? fechaH.toLocaleDateString() : fecha}</div>`;
-      const inner = document.createElement("div");
-      inner.className = "d-grid gap-2";
-      grupos[fecha].forEach(t => {
-        const card = document.createElement("div");
-        card.className = "p-2 border rounded drop-turno position-relative bg-white";
-        card.dataset.turnoId = t.id;
-        card.dataset.fecha = t.fecha;
-        card.dataset.horaInicio = t.hora_inicio;
-        card.dataset.horaFin = t.hora_fin;
-        card.dataset.puntoId = t.punto_id || "";
-        card.innerHTML = `
-          <div class="fw-medium">${timeToHHMM(t.hora_inicio)} - ${timeToHHMM(t.hora_fin)}</div>
-          <div class="text-muted small">${t.punto || t.punto_id || ""}</div>
-          <div class="text-success small mt-1 asignados">${t.asignados ? `${t.asignados} asignados` : '0 asignados'}</div>
-        `;
-        // allow drop
-        card.addEventListener("dragover", e => e.preventDefault());
-        card.addEventListener("drop", onDropUsuarioSimple);
-        inner.appendChild(card);
-      });
-      col.appendChild(inner);
-      container.appendChild(col);
-    });
-  }
-
-  // ------------------------
-  // Drop handler (list/card view)
-  // ------------------------
-  async function onDropUsuarioSimple(e) {
-    e.preventDefault();
-    const turnoId = e.currentTarget.dataset.turnoId;
-    const userId = e.dataTransfer.getData("userId");
-    if (!turnoId || !userId) {
-      mostrarAvisoCelda(e.currentTarget, "Datos incompletos", "error");
-      return;
-    }
-    // find turno object
-    const turno = turnos.find(t => t.id == turnoId);
-    if (!turno) {
-      mostrarAvisoCelda(e.currentTarget, "Turno no encontrado", "error");
-      return;
-    }
-
-    // 1) validar disponibilidad con backend
-    const params = new URLSearchParams({
-      accion: "validar_disponibilidad",
-      usuario_id: userId,
-      fecha: turno.fecha,
-      hora_inicio: timeToHHMM(turno.hora_inicio),
-      hora_fin: timeToHHMM(turno.hora_fin),
-      punto_id: turno.punto_id || ""
-    });
-    try {
-      const valid = await safeFetch(`${apiBasePost}?${params.toString()}`);
-      if (!valid.ok) {
-        mostrarAvisoCelda(e.currentTarget, `✗ ${valid.motivo || 'no disponible'}`, "error");
-        return;
-      }
-    } catch (err) {
-      mostrarAvisoCelda(e.currentTarget, "Error validando", "error");
-      return;
-    }
-
-    // 2) asignar via API
-    try {
-      const body = { turno_id: Number(turnoId), usuario_id: Number(userId), rol: "publicador" };
-      const res = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (res.ok) {
-        mostrarAvisoCelda(e.currentTarget, "✓ Asignado", "ok");
-        // actualizar UI local: incrementar asignados, cambiar barra/label
-        const asignLabel = e.currentTarget.querySelector(".asignados");
-        if (asignLabel) {
-          const prev = turno.asignados || 0;
-          turno.asignados = prev + 1;
-          asignLabel.textContent = `${turno.asignados} asignados`;
-        }
-      } else {
-        mostrarAvisoCelda(e.currentTarget, `Error: ${res.error || "no se asignó"}`, "error");
-      }
-    } catch (err) {
-      console.error("Error asignar_manual:", err);
-      mostrarAvisoCelda(e.currentTarget, "Error asignando", "error");
-    }
-  }
-
-  // ------------------------
-  // Semana: crear grid y permitir arrastrar en celdas vacías (creación de turnos)
-  // ------------------------
-  function ensureSemanaInicial() {
-    if (!semanaInicial) {
-      const hoy = new Date();
-      const d = hoy.getDay();
-      const diff = (d === 0 ? -6 : 1 - d);
-      const lunes = new Date(hoy);
-      lunes.setDate(hoy.getDate() + diff);
-      lunes.setHours(0,0,0,0);
-      semanaInicial = lunes;
-    }
-  }
-
   function getRangoSemana(baseDate) {
     const base = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
-    const day = base.getDay();
+    base.setHours(12, 0, 0, 0);
+    const day = base.getDay(); // 0=domingo
     const diff = (day === 0 ? -6 : 1 - day);
     const lunes = new Date(base);
     lunes.setDate(base.getDate() + diff);
+    lunes.setHours(0,0,0,0);
     const domingo = new Date(lunes);
     domingo.setDate(lunes.getDate() + 6);
-    return {
-      desde: formatISOlocal(lunes),
-      hasta: formatISOlocal(domingo),
-      lunes,
-      domingo
+    domingo.setHours(23,59,59,999);
+    return { desde: formatISOlocal(lunes), hasta: formatISOlocal(domingo), lunes, domingo };
+  }
+
+  // safeFetch: trabaja con JSON o texto; devuelve { ok, status, data, error }
+  async function safeFetch(url, opts = {}) {
+    try {
+      const r = await fetch(url, opts);
+      const text = await r.text();
+      // intentar parsear JSON
+      let data;
+      try { data = JSON.parse(text); }
+      catch { data = text; }
+      return { ok: r.ok, status: r.status, data, url };
+    } catch (err) {
+      return { ok: false, status: 0, error: err.message || String(err), url };
+    }
+  }
+
+  // ---------------- UI helpers ----------------
+  function mostrarAvisoCelda(celda, mensaje, tipo = "info") {
+    if (!celda) return;
+    const aviso = document.createElement("div");
+    aviso.className = `absolute z-50 px-3 py-1 rounded text-xs font-medium text-white shadow-lg transition-opacity duration-500 ${
+      tipo === "ok" ? "bg-green-500" : tipo === "error" ? "bg-red-500" : "bg-gray-700"
+    }`;
+    aviso.textContent = mensaje;
+    aviso.style.top = "6px";
+    aviso.style.left = "6px";
+    aviso.style.pointerEvents = "none";
+    celda.appendChild(aviso);
+    setTimeout(() => (aviso.style.opacity = "0"), 1200);
+    setTimeout(() => aviso.remove(), 1800);
+  }
+
+  function nombreFromUser(u) {
+    if (!u) return "Usuario";
+    return [u.nombre, u.apellido].filter(Boolean).join(" ") || u.usuario || `Usuario ${u.id}`;
+  }
+
+  // ---------------- CARGA DATOS ----------------
+  async function cargarUsuarios(params = {}) {
+    // params possible: punto_id, fecha, hora_inicio, hora_fin
+    const q = new URLSearchParams({ accion: "listar_disponibles" });
+    Object.keys(params).forEach(k => { if (params[k] !== undefined && params[k] !== null) q.set(k, String(params[k])); });
+    const url = `${apiBasePost}?${q.toString()}`;
+    const r = await safeFetch(url);
+    if (!r.ok) { console.warn("Error cargarUsuarios:", r); usuarios = []; return usuarios; }
+    usuarios = Array.isArray(r.data) ? r.data : [];
+    return usuarios;
+  }
+
+  async function cargarTurnos(desde, hasta) {
+    // si no se pasan, usa semana actual (calcula)
+    if (!desde || !hasta) {
+      const hoy = new Date();
+      const { desde: d, hasta: h } = getRangoSemana(hoy);
+      desde = d; hasta = h;
+    }
+    const url = `${apiBaseTurnos}?accion=listar_por_rango&desde=${desde}&hasta=${hasta}`;
+    const r = await safeFetch(url);
+    if (!r.ok) { console.warn("Error cargarTurnos:", r); turnos = []; return turnos; }
+    const obj = r.data || {};
+    // convertir a array plano con fecha field
+    turnos = Object.entries(obj).flatMap(([fecha, arr]) => (arr || []).map(t => ({ ...t, fecha })));
+    return turnos;
+  }
+
+  // ---------------- RENDER LISTA USUARIOS (barra lateral) ----------------
+  async function renderUsersList(containerId = "pi_sidebar_users") {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = `<div class="text-sm text-gray-500">Cargando publicadores...</div>`;
+    try {
+      if (!usuarios || usuarios.length === 0) await cargarUsuarios();
+      if (!usuarios || usuarios.length === 0) {
+        container.innerHTML = `<div class="text-sm text-gray-500">No hay publicadores disponibles.</div>`;
+        return;
+      }
+      container.innerHTML = "";
+      usuarios.forEach(u => {
+        const el = document.createElement("div");
+        el.className = "p-2 border rounded hover:bg-gray-50 flex justify-between items-center draggable-user cursor-move";
+        el.draggable = true;
+        el.dataset.userId = u.id;
+        el.innerHTML = `<div><div class="font-medium">${nombreFromUser(u)}</div>
+                        <div class="text-xs text-gray-500">${u.usuario || ''}</div></div>
+                        <div class="text-xs text-gray-400">${u.id || ''}</div>`;
+        el.addEventListener("dragstart", onDragStart);
+        container.appendChild(el);
+      });
+    } catch (err) {
+      container.innerHTML = `<div class="text-sm text-red-500">Error cargando publicadores</div>`;
+      console.warn("renderUsersList error:", err);
+    }
+  }
+
+  // ---------------- RENDER GRID SEMANA (simplificado y robusto) ----------------
+  async function renderGridSemana(fechaISO) {
+    // wrapper required: #pi_grid_inner in your earlier layout; fallback to #gridSemana
+    const wrapper = document.getElementById("pi_grid_inner") || document.getElementById("gridSemana");
+    if (!wrapper) return;
+
+    let fecha = fechaISO || document.getElementById("pi_fecha_input")?.value;
+    if (!fecha) {
+      const d = new Date();
+      fecha = formatISOlocal(d);
+      const inp = document.getElementById("pi_fecha_input");
+      if (inp) inp.value = fecha;
+    }
+
+    const base = (fecha) ? new Date(fecha.split('-').map((n,i)=> i===1 ? Number(n)-1 : Number(n)).reverse().reverse()) : new Date();
+    // compute monday as in getRangoSemana
+    const { lunes } = getRangoSemana(new Date(base.getFullYear(), base.getMonth(), base.getDate()));
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(lunes);
+      d.setDate(lunes.getDate() + i);
+      days.push(d);
+    }
+
+    const colsHtml = days.map(d => {
+      const iso = formatISOlocal(d);
+      const dayName = d.toLocaleDateString('es-ES', { weekday: 'long' });
+      const dayShort = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+      return `<div class="pi-day-column border-l p-2" data-fecha="${iso}" style="min-width:140px;position:relative;">
+                <div class="font-semibold">${dayName}</div>
+                <div class="text-xs text-gray-500">${dayShort}</div>
+                <div class="pi-day-body mt-2"></div>
+              </div>`;
+    }).join("");
+    wrapper.innerHTML = `<div class="grid grid-cols-7 gap-2">${colsHtml}</div>`;
+
+    // cargar turnos para el rango
+    const desde = formatISOlocal(days[0]);
+    const hasta = formatISOlocal(days[6]);
+    await cargarTurnos(desde, hasta);
+
+    // Build map date -> column body
+    const colNodes = wrapper.querySelectorAll(".pi-day-column");
+    const mapCols = {};
+    colNodes.forEach(n => {
+      mapCols[n.dataset.fecha] = n.querySelector(".pi-day-body");
+    });
+
+    // filter by punto (if select exists)
+    const filtroPunto = document.getElementById("pi_filtro_punto")?.value || "";
+
+    // append turnos to columns
+    (turnos || []).forEach(t => {
+      if (filtroPunto && String(t.punto_id) !== String(filtroPunto)) return;
+      const target = mapCols[t.fecha] || Object.values(mapCols)[0];
+      if (!target) return;
+      const nodo = document.createElement("div");
+      nodo.className = "p-2 mb-2 border rounded bg-slate-50 drop-turno";
+      nodo.dataset.turnoId = t.id;
+      nodo.dataset.fecha = t.fecha;
+      nodo.dataset.horaInicio = t.hora_inicio;
+      nodo.dataset.horaFin = t.hora_fin;
+      nodo.dataset.puntoId = t.punto_id;
+      nodo.innerHTML = `<div class="font-medium">${t.punto || ('Punto ' + (t.punto_id||''))}</div>
+                        <div class="text-xs text-gray-600">${t.hora_inicio || ''} - ${t.hora_fin || ''}</div>
+                        <div class="asignados text-xs text-gray-700 mt-1"></div>`;
+      nodo.addEventListener("dragover", e => e.preventDefault());
+      nodo.addEventListener("drop", onDropUsuario);
+      target.appendChild(nodo);
+
+      // render assigned names from backend fields if present (we expect nulls normally)
+      const asignBox = nodo.querySelector(".asignados");
+      const assignedNames = [];
+      ["publicador1","publicador2","publicador3","publicador4"].forEach(slot => {
+        const val = t[slot];
+        if (val) assignedNames.push(String(val)); // backend might eventually send "Name" or id
+      });
+      if (assignedNames.length) asignBox.innerHTML = assignedNames.map(n => `<div>${n}</div>`).join("");
+    });
+
+    // attach "Ir" button behavior if present
+    const btn = document.getElementById("pi_apply_date");
+    if (btn) btn.onclick = async () => {
+      const newDate = document.getElementById("pi_fecha_input").value;
+      await loadPuntosFiltro(newDate);
+      await renderGridSemana(newDate);
     };
   }
 
-  async function cambiarSemana(delta = 0) {
-    ensureSemanaInicial();
-    offsetSemanas += delta;
-    const base = new Date(semanaInicial);
-    base.setDate(semanaInicial.getDate() + offsetSemanas * 7);
-    const { desde, hasta, lunes } = getRangoSemana(base);
-    document.getElementById("tituloSemana").textContent = `Semana: ${desde} → ${hasta}`;
-
-    // mostrar spinner
-    const grid = document.getElementById("gridSemana");
-    grid.innerHTML = `<div class="text-center py-4 text-muted">Cargando semana...</div>`;
-
-    await cargarTurnosPorRango(desde, hasta);
-    renderSemanaGrid(lunes);
+  // load puntos into select
+  async function loadPuntosFiltro(fechaISO) {
+    const sel = document.getElementById("pi_filtro_punto");
+    if (!sel) return;
+    sel.innerHTML = `<option value="">Todos los puntos</option>`;
+    const fecha = fechaISO || document.getElementById("pi_fecha_input")?.value;
+    if (!fecha) return;
+    const url = `${apiBaseTurnos}?accion=puntos_disponibles&fecha=${fecha}`;
+    const r = await safeFetch(url);
+    if (!r.ok) return;
+    const puntos = Array.isArray(r.data) ? r.data : [];
+    puntos.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.nombre;
+      sel.appendChild(opt);
+    });
+    sel.onchange = async () => { await renderGridSemana(fecha); };
   }
 
-  function crearCeldaHora(hora, diaIndex) {
-    const celda = document.createElement("div");
-    celda.className = "border position-relative drop-turno-cell p-1";
-    celda.dataset.dia = diaIndex + 1; // 1..7
-    celda.dataset.hora = hora;
-    celda.style.minHeight = "48px";
-    celda.style.cursor = "pointer";
-
-    celda.addEventListener("dragover", e => {
-      e.preventDefault();
-      celda.classList.add("border-primary");
-    });
-    celda.addEventListener("dragleave", () => celda.classList.remove("border-primary"));
-    celda.addEventListener("drop", async (e) => {
-      celda.classList.remove("border-primary");
-      await onDropUsuarioEnCelda(e, celda);
-    });
-	// click en celda vacía = crear turno manualmente
-	celda.addEventListener("click", async (e) => {
-    e.stopPropagation();
-
-    // obtener fecha real según semana
-    ensureSemanaInicial();
-    const dayIndex = Number(celda.dataset.dia); // 1..7
-    const fecha = new Date(semanaInicial);
-    fecha.setDate(semanaInicial.getDate() + offsetSemanas*7 + (dayIndex - 1));
-    const fechaISO = formatISOlocal(fecha);
-    const horaInicio = celda.dataset.hora;
-    const horaFin = sumarHorasHora(horaInicio, 1);
-
-    // cargar puntos disponibles
-    const puntos = await cargarPuntosDisponibles(fechaISO);
-
-    // abrir popup de creación
-    const result = await mostrarPopupCreacionTurno(
-        fechaISO,
-        horaInicio,
-        horaFin,
-        puntos,
-        celda
-    );
-
-    if (!result || !result.ok) {
-        mostrarAvisoCelda(celda, "Cancelado", "error");
-        return;
-    }
-
-    // recargar la semana para que aparezca el turno creado
-    await cambiarSemana(0);
-});
-
-
-    return celda;
+  // ---------------- Drag & Drop core (diario y semanal unified) ----------------
+  function onDragStart(e) {
+    const id = e.target.dataset.userId;
+    if (!id) return;
+    e.dataTransfer.setData("userId", id);
+    e.dataTransfer.effectAllowed = "move";
   }
 
-  function renderSemanaGrid(lunesDate) {
-    const cont = document.getElementById("gridSemana");
-    cont.innerHTML = "";
-    // encabezado dias
-    const dias = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
-    const horas = Array.from({length: 12}, (_,i) => `${String(8 + i).padStart(2,"0")}:00`);
-
-    const tabla = document.createElement("div");
-    tabla.className = "table-responsive";
-    // build simple grid using CSS grid
-    const grid = document.createElement("div");
-    grid.style.display = "grid";
-    grid.style.gridTemplateColumns = `100px repeat(7, 1fr)`;
-    grid.style.gap = "0";
-
-    // primera celda vacía (esquina)
-    const corner = document.createElement("div");
-    corner.className = "p-1";
-    grid.appendChild(corner);
-
-    // headers dias con fecha
-    for (let d=0; d<7; d++) {
-      const fecha = new Date(lunesDate);
-      fecha.setDate(lunesDate.getDate() + d);
-      const h = document.createElement("div");
-      h.className = "p-2 text-center fw-medium bg-light border";
-      h.innerHTML = `<div>${dias[d]}</div><div class="small text-muted">${formatISOlocal(fecha)}</div>`;
-      grid.appendChild(h);
-    }
-
-    // filas por hora
-    for (let hi=0; hi<horas.length; hi++) {
-      const hora = horas[hi];
-      // label hora
-      const label = document.createElement("div");
-      label.className = "p-2 text-end small border bg-white";
-      label.textContent = hora;
-      grid.appendChild(label);
-
-      for (let d=0; d<7; d++) {
-        const celda = crearCeldaHora(hora, d);
-        grid.appendChild(celda);
-      }
-    }
-
-    tabla.appendChild(grid);
-    cont.appendChild(tabla);
-
-    // pintar bloques de turnos existentes
-    turnos.forEach(t => {
-      if (!t.fecha) return;
-      const fechaObj = parseDateLocal(t.fecha);
-      if (!fechaObj) return;
-      // calcular dia index en la semana (0..6)
-      const dayIdx = (fechaObj.getDay() + 6) % 7; // Monday=0
-      const startHour = Number((t.hora_inicio || "08:00").split(":")[0]);
-      const endHour = Number((t.hora_fin || "09:00").split(":")[0]) || (startHour + 1);
-      const dur = Math.max(1, endHour - startHour);
-      // find the corresponding starting cell
-      // grid children index math: 1 corner + 7 headers + (rowIndex * 8) + (dayIndex + 1)
-      const rowStart = startHour - 8;
-      if (rowStart < 0 || rowStart >= 12) return;
-      const idx = 1 + 7 + (rowStart * 8) + (dayIdx + 1);
-      const cell = grid.children[idx];
-      if (!cell) return;
-
-      // create block
-      const bloque = document.createElement("div");
-      bloque.className = "position-absolute text-white small rounded p-1";
-      // color by coverage
-      const pct = Math.round(((t.asignados || 0) / (t.maximo_publicadores || 3)) * 100);
-      bloque.style.background = pct >= 80 ? "#16a34a" : pct >= 40 ? "#eab308" : "#ef4444";
-      bloque.style.top = "0";
-      bloque.style.left = "0";
-      bloque.style.right = "0";
-      bloque.style.zIndex = 50;
-      bloque.style.height = `calc(${dur} * 100%)`; // cover the selected hours
-      bloque.textContent = `${timeToHHMM(t.hora_inicio)}-${timeToHHMM(t.hora_fin)} ${t.punto || ""}`;
-      bloque.title = `${t.asignados || 0}/${t.maximo_publicadores || 3}`;
-
-      // set cell background to indicate coverage for the range
-      for (let i=0;i<dur;i++) {
-        const idxCell = 1 + 7 + ((rowStart + i) * 8) + (dayIdx + 1);
-        const c = grid.children[idxCell];
-        if (c) c.classList.add("bg-light");
-      }
-      // place on start cell
-      cell.appendChild(bloque);
-
-      // also enable dropping on the bloque to allow assignment to that turno directly
-      bloque.addEventListener("dragover", e => e.preventDefault());
-      bloque.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        // if the bloque corresponds to an existing turno, prefer assigning to that turno via its id
-        // we don't have t.id stamped on bloque, so fallback to fetch turnos by fecha/hora
-        await onDropUsuarioEnBloque(e, t);
-      });
-    });
-  }
-
-  // ------------------------
-  // Drop on empty cell: try to create a turno or match existing
-  // ------------------------
-  async function onDropUsuarioEnCelda(e, celda) {
+  // onDropUsuario: maneja muchos escenarios (turno existente, seleccionar, crear nuevo, asignar)
+  async function onDropUsuario(e) {
+    e.preventDefault();
+    const box = e.currentTarget;
+    if (!box) return;
     const userId = e.dataTransfer.getData("userId");
-    if (!userId) {
-      mostrarAvisoCelda(celda, "Usuario inválido", "error");
-      return;
-    }
-    // Deduce date from cell's header: we stored date on header elements earlier in renderSemanaGrid
-    // easier: find the date from the col header position by measuring index of the cell inside grid
-    // We will compute the date from semanaInitial + offset + celda.dataset.dia - 1
-    ensureSemanaInicial();
-    const dayIndex = Number(celda.dataset.dia); // 1..7
-    const fecha = new Date(semanaInicial);
-    fecha.setDate(semanaInicial.getDate() + offsetSemanas*7 + (dayIndex - 1));
-    const fechaISO = formatISOlocal(fecha);
-    const hora = celda.dataset.hora;
+    if (!userId) { console.warn("drop sin userId"); return; }
 
-    // 1) fetch turnos that overlap that fecha/hora
-    try {
+    // Si la caja tiene data-turno-id (tarjeta de turno) -> asignar directamente a ese turno
+    const turnoId = box.dataset.turnoId || box.dataset.turnoid || null;
+
+    // Asegurar caja '.asignados'
+    let asignadosBox = box.querySelector(".asignados");
+    if (!asignadosBox) {
+      asignadosBox = document.createElement("div");
+      asignadosBox.className = "asignados text-xs text-gray-600 italic";
+      box.appendChild(asignadosBox);
+    }
+
+    // Si no existe turnoId pero estamos en grilla semanal (celda con data-dia) => tratar de buscar/crear turno
+    if (!turnoId && box.dataset.dia) {
+      const dia = parseInt(box.dataset.dia);
+      const hora = box.dataset.hora;
+      const fecha = calcularFechaPorDia(dia);
+      // normalizar fecha ISO
+      const fechaISO = fecha && fecha.includes("/") ? fecha.split("/").reverse().join("-") : fecha;
+
+      mostrarAvisoCelda(box, `Intentando asignar ${userId} → ${fechaISO} ${hora}`, "info");
+
+      // pedir turnos del día
       const resp = await safeFetch(`${apiBaseTurnos}?accion=listar_por_rango&desde=${fechaISO}&hasta=${fechaISO}`);
-      const diaTurnos = resp[fechaISO] || [];
-      // find overlaps by comparing numeric hours
-      const posibles = (diaTurnos || []).filter(t => {
-        const hI = Number((t.hora_inicio || "00:00").split(":")[0]) + Number((t.hora_inicio || "00:00").split(":")[1]||0)/60;
-        const hF = Number((t.hora_fin || "00:00").split(":")[0]) + Number((t.hora_fin || "00:00").split(":")[1]||0)/60;
-        const [hSelH, hSelM] = hora.split(":").map(Number);
+      if (!resp.ok) {
+        mostrarAvisoCelda(box, "Error cargando turnos", "error");
+        return;
+      }
+      const datos = resp.data || {};
+      const posibles = (datos[fechaISO] || []).filter(t => {
+        const hI = Number(t.hora_inicio.split(":")[0]) + Number(t.hora_inicio.split(":")[1] || 0)/60;
+        const hF = Number(t.hora_fin.split(":")[0]) + Number(t.hora_fin.split(":")[1] || 0)/60;
+        const [hSelH, hSelM] = (hora || "00:00").split(":").map(Number);
         const hSel = hSelH + (hSelM || 0)/60;
         return hSel >= hI && hSel < hF;
       });
 
-      // if there are multiple, show selection modal
-      let turnoElegido = null;
-      if (posibles.length === 1) turnoElegido = posibles[0];
-      else if (posibles.length > 1) turnoElegido = await mostrarSelectorTurnoModal(posibles);
-      // if elegido -> validate + assign
-      if (turnoElegido) {
-        // validate disponibilidad
+      if (posibles.length > 0) {
+        // seleccionar si hay varios
+        let elegido = posibles[0];
+        if (posibles.length > 1) {
+          elegido = await mostrarSelectorTurno(posibles);
+          if (!elegido) { mostrarAvisoCelda(box, "Cancelado", "error"); return; }
+        }
+
+        // validar disponibilidad contra backend
         const params = new URLSearchParams({
           accion: "validar_disponibilidad",
           usuario_id: userId,
-          fecha: turnoElegido.fecha,
-          hora_inicio: timeToHHMM(turnoElegido.hora_inicio),
-          hora_fin: timeToHHMM(turnoElegido.hora_fin),
-          punto_id: turnoElegido.punto_id || ""
+          fecha: elegido.fecha,
+          hora_inicio: padTimeToHHMM(elegido.hora_inicio),
+          hora_fin: padTimeToHHMM(elegido.hora_fin),
+          punto_id: elegido.punto_id || ""
         });
-        const valid = await safeFetch(`${apiBasePost}?${params.toString()}`);
-        if (!valid.ok) {
-          mostrarAvisoCelda(celda, valid.motivo || "No disponible", "error");
+        const v = await safeFetch(`${apiBasePost}?${params.toString()}`);
+        const vdata = v.data || {};
+        if (!v.ok || vdata.ok === false) {
+          mostrarAvisoCelda(box, `No disponible: ${vdata.motivo || v.error || '?'}`, "error");
           return;
         }
-        // asignar
-        const res = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ turno_id: turnoElegido.id, usuario_id: Number(userId), rol: "publicador" })
+
+        // asignar mediante API
+        const post = { turno_id: elegido.id, usuario_id: Number(userId), rol: "publicador" };
+        const r = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(post)
         });
-        if (res.ok) {
-          mostrarAvisoCelda(celda, "✓ Asignado", "ok");
-          // actualizar localmente recargando la semana
-          await cambiarSemana(0);
-        } else {
-          mostrarAvisoCelda(celda, "Error asignando", "error");
+        if (!r.ok || r.data?.ok === false) {
+          mostrarAvisoCelda(box, `Error: ${r.data?.error || r.error || r.status}`, "error");
+          return;
         }
+
+        // Visual: usar nombre desde usuarios[] (Opción C)
+        const userObj = usuarios.find(u => String(u.id) === String(userId));
+        const nombre = nombreFromUser(userObj);
+        const overlay = document.createElement("div");
+        overlay.className = "absolute inset-0 flex items-center justify-center text-[10px] bg-green-400/80 text-white rounded shadow";
+        overlay.textContent = "✓ " + nombre.split(' ')[0];
+        box.appendChild(overlay);
+        resumen.totalAsignados++;
+        actualizarPanelResumen();
+        mostrarAvisoCelda(box, "✓ Asignado", "ok");
         return;
       }
 
-      // Si no hay turno posible, abrir popup de creación de turno (selección de punto)
-      const puntos = await cargarPuntosDisponibles(fechaISO);
-      const result = await mostrarPopupCreacionTurno(fechaISO, hora, sumarHorasHora(hora,1), puntos, celda);
-      if (!result || !result.ok) {
-        mostrarAvisoCelda(celda, "Creación cancelada", "error");
-        return;
-      }
-      // buscar el turno recién creado en backend (re-cargar rango)
-      await cambiarSemana(0);
-      // encontrar turno creado y asignar al usuario
+      // No hay turnos: crear uno nuevo (popup)
+      mostrarAvisoCelda(box, "No existe turno → crear", "info");
+      const result = await mostrarPopupCreacionTurno(fechaISO, hora, sumarHoras(hora,1), box);
+      if (!result || !result.ok) { mostrarAvisoCelda(box, "Creación cancelada", "error"); return; }
+
+      // buscar turno nuevo en backend y asignar
       const resp2 = await safeFetch(`${apiBaseTurnos}?accion=listar_por_rango&desde=${fechaISO}&hasta=${fechaISO}`);
-      const listaDia = resp2[fechaISO] || [];
-      const match = listaDia.find(t => t.hora_inicio === result.hora_inicio && t.hora_fin === result.hora_fin && (t.punto_id == result.punto_id || t.punto == result.punto));
-      if (!match) {
-        mostrarAvisoCelda(celda, "No se encontró el turno creado", "error");
-        return;
-      }
-      // asignar usuario al turno creado
-      const asignRes = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turno_id: match.id, usuario_id: Number(userId), rol: "publicador" })
+      if (!resp2.ok) { mostrarAvisoCelda(box, "Error reload turnos", "error"); return; }
+      const nuevos = resp2.data || {};
+      const fechaKey = fechaISO;
+      const turnoNuevo = (nuevos[fechaKey] || []).find(t => t.hora_inicio === result.hora_inicio && t.hora_fin === result.hora_fin);
+      if (!turnoNuevo) { mostrarAvisoCelda(box, "No se encontró el turno creado", "error"); return; }
+
+      // asignar al turno nuevo
+      const post2 = { turno_id: turnoNuevo.id, usuario_id: Number(userId), rol: "publicador" };
+      const r2 = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(post2)
       });
-      if (asignRes.ok) {
-        mostrarAvisoCelda(celda, "✓ Creado y asignado", "ok");
-        await cambiarSemana(0);
-      } else {
-        mostrarAvisoCelda(celda, "Error asignando nuevo turno", "error");
-      }
+      if (!r2.ok || r2.data?.ok === false) { mostrarAvisoCelda(box, `Error asignando: ${r2.data?.error||r2.error}`, "error"); return; }
 
-    } catch (err) {
-      console.error("onDropUsuarioEnCelda error:", err);
-      mostrarAvisoCelda(celda, "Error procesando", "error");
-    }
-  }
-
-  // Drop directly on a visual bloque (existing turno object passed)
-  async function onDropUsuarioEnBloque(e, turnoObj) {
-    const userId = e.dataTransfer.getData("userId");
-    if (!userId) {
-      mostrarAvisoCelda(e.currentTarget, "Usuario inválido", "error");
+      const userObj2 = usuarios.find(u => String(u.id) === String(userId));
+      const nombre2 = nombreFromUser(userObj2);
+      const overlay2 = document.createElement("div");
+      overlay2.className = "absolute inset-0 flex items-center justify-center text-[10px] bg-green-400/80 text-white rounded shadow";
+      overlay2.textContent = "✓ " + nombre2.split(' ')[0];
+      box.appendChild(overlay2);
+      resumen.totalAsignados++;
+      actualizarPanelResumen();
+      mostrarAvisoCelda(box, "✓ Creado + asignado", "ok");
       return;
     }
-    try {
+
+    // Si tenemos un turnoId directo — comportamiento normal: validar + asignar
+    if (turnoId) {
+      const turno = turnos.find(t => String(t.id) === String(turnoId));
+      const userObj = usuarios.find(u => String(u.id) === String(userId));
+      if (!turno) { mostrarAvisoCelda(box, "Turno no encontrado localmente", "error"); return; }
+      if (!userObj) { mostrarAvisoCelda(box, "Usuario no encontrado localmente", "error"); return; }
+
+      // Validar disponibilidad
       const params = new URLSearchParams({
         accion: "validar_disponibilidad",
         usuario_id: userId,
-        fecha: turnoObj.fecha,
-        hora_inicio: timeToHHMM(turnoObj.hora_inicio),
-        hora_fin: timeToHHMM(turnoObj.hora_fin),
-        punto_id: turnoObj.punto_id || ""
+        fecha: turno.fecha,
+        hora_inicio: padTimeToHHMM(turno.hora_inicio),
+        hora_fin: padTimeToHHMM(turno.hora_fin),
+        punto_id: turno.punto_id || ""
       });
-      const valid = await safeFetch(`${apiBasePost}?${params.toString()}`);
-      if (!valid.ok) {
-        mostrarAvisoCelda(e.currentTarget, valid.motivo || "No disponible", "error");
+      const v = await safeFetch(`${apiBasePost}?${params.toString()}`);
+      const vdata = v.data || {};
+      if (!v.ok || vdata.ok === false) {
+        mostrarAvisoCelda(box, `No disponible: ${vdata.motivo || v.error || '?'}`, "error");
+        resumen.conflictos.push(`${nombreFromUser(userObj)} → ${turno.fecha} (${vdata.motivo || 'conflicto'})`);
+        actualizarPanelResumen();
         return;
       }
-      const res = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turno_id: turnoObj.id, usuario_id: Number(userId), rol: "publicador" })
+
+      // Asignar
+      const post = { turno_id: Number(turnoId), usuario_id: Number(userId), rol: "publicador" };
+      const r = await safeFetch(`${apiBaseTurnos}?accion=asignar_manual`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(post)
       });
-      if (res.ok) {
-        mostrarAvisoCelda(e.currentTarget, "✓ Asignado", "ok");
-        await cambiarSemana(0);
-      } else {
-        mostrarAvisoCelda(e.currentTarget, "Error asignando", "error");
+      if (!r.ok || r.data?.ok === false) {
+        mostrarAvisoCelda(box, `Error: ${r.data?.error || r.error || r.status}`, "error");
+        return;
       }
-    } catch (err) {
-      console.error("onDropUsuarioEnBloque:", err);
-      mostrarAvisoCelda(e.currentTarget, "Error", "error");
+
+      // Pintar UI (usar nombre local)
+      const nombre = nombreFromUser(userObj);
+      asignadosBox.innerHTML += `<div class="text-green-700">✓ ${nombre} asignado</div>`;
+      if (box.closest("#gridSemana")) {
+        const overlay = document.createElement("div");
+        overlay.className = "absolute inset-0 flex items-center justify-center text-[10px] bg-green-400/80 text-white rounded shadow";
+        overlay.textContent = `${nombre.split(' ')[0]}`;
+        box.appendChild(overlay);
+      }
+      resumen.totalAsignados++;
+      actualizarPanelResumen();
+      actualizarBarraProgreso(turnoId);
     }
   }
 
-  // ------------------------
-  // UI modals: selector turno, crear turno
-  // ------------------------
-  function mostrarSelectorTurnoModal(turnosList) {
-    return new Promise(resolve => {
-      const backdrop = document.createElement("div");
-      backdrop.className = "position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex justify-content-center align-items-center";
-      backdrop.style.zIndex = 7000;
-      const box = document.createElement("div");
-      box.className = "bg-white rounded p-3 shadow";
-      box.style.width = "360px";
-      box.innerHTML = `<h6 class="mb-2">Seleccioná el turno</h6><div class="list-group mb-2"></div><div class="text-end"><button class="btn btn-sm btn-secondary btn-cancel">Cancelar</button></div>`;
-      const list = box.querySelector(".list-group");
-      (turnosList || []).forEach(t => {
-        const it = document.createElement("button");
-        it.className = "list-group-item list-group-item-action text-start";
-        it.textContent = `${timeToHHMM(t.hora_inicio)} - ${timeToHHMM(t.hora_fin)} • ${t.punto || ""}`;
-        it.addEventListener("click", () => { backdrop.remove(); resolve(t); });
-        list.appendChild(it);
-      });
-      box.querySelector(".btn-cancel").addEventListener("click", () => { backdrop.remove(); resolve(null); });
-      backdrop.appendChild(box);
-      document.body.appendChild(backdrop);
-    });
+  // ----------------- actualizar barra progreso local -----------------
+  function actualizarBarraProgreso(turnoId) {
+    const turno = turnos.find(t => String(t.id) === String(turnoId));
+    if (!turno) return;
+    // actualizar contador localmente (no exhaustivo)
+    turno.asignados = (turno.asignados || 0) + 1;
+    const asignados = turno.asignados;
+    const max = turno.maximo_publicadores || 3;
+    const pct = Math.round((asignados / max) * 100);
+    const box = document.querySelector(`.drop-turno[data-turno-id="${turnoId}"]`);
+    if (!box) return;
+    const bar = box.querySelector(".h-3 > div");
+    const label = box.querySelector(".text-xs");
+    if (bar) {
+      bar.className = `${pct >= 80 ? "bg-green-500" : pct >= 40 ? "bg-yellow-400" : "bg-red-400"} h-full transition-all duration-300`;
+      bar.style.width = `${pct}%`;
+    }
+    if (label) label.textContent = `${asignados}/${max} cubiertos (${pct}%)`;
   }
 
-  function sumarHorasHora(horaStr, horas) {
-    const [h,m] = (horaStr||"08:00").split(":").map(Number);
-    const d = new Date();
-    d.setHours(h + horas, m || 0, 0, 0);
-    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-  }
-
-  async function mostrarPopupCreacionTurno(fechaISO, horaInicio, horaFin, puntosArray = [], celdaRef = null) {
+  // ---------------- Mostrar selector de turnos si hay varios ----------------
+  async function mostrarSelectorTurno(turnosArr) {
     return new Promise(resolve => {
-      const backdrop = document.createElement("div");
-      backdrop.className = "position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex justify-content-center align-items-center";
-      backdrop.style.zIndex = 7000;
-
-      const box = document.createElement("div");
-      box.className = "bg-white rounded p-3 shadow";
-      box.style.width = "360px";
-      box.innerHTML = `
-        <h6 class="mb-2">Crear turno ${fechaISO} ${horaInicio}-${horaFin}</h6>
-        <div class="mb-2">
-          <label class="form-label small">Punto</label>
-          <select id="selPuntoNuevo" class="form-select form-select-sm"></select>
-        </div>
-        <div class="d-flex justify-content-end gap-2">
-          <button class="btn btn-sm btn-secondary btn-cancel">Cancelar</button>
-          <button class="btn btn-sm btn-primary btn-create">Crear</button>
+      const popup = document.createElement("div");
+      popup.className = "fixed inset-0 bg-black/50 flex justify-center items-center z-[9999]";
+      popup.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl p-4 w-[340px]">
+          <h3 class="font-semibold text-lg mb-2 text-indigo-700">📍 Seleccioná el turno</h3>
+          <div class="max-h-[200px] overflow-y-auto mb-3">
+            ${turnosArr.map(t => `
+              <div class="turno-opcion border rounded p-2 mb-1 cursor-pointer hover:bg-indigo-50"
+                   data-id="${t.id}">
+                <b>${t.punto}</b><br>
+                <span class="text-sm text-gray-600">${t.hora_inicio} - ${t.hora_fin}</span>
+              </div>
+            `).join("")}
+          </div>
+          <div class="flex justify-end">
+            <button id="btnCancelarSelTurno" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">Cancelar</button>
+          </div>
         </div>
       `;
-      const sel = box.querySelector("#selPuntoNuevo");
-      sel.innerHTML = (puntosArray && puntosArray.length) ? puntosArray.map(p => `<option value="${p.id}" data-name="${p.nombre}">${p.nombre}</option>`).join("") : `<option value="">(Sin puntos disponibles)</option>`;
+      document.body.appendChild(popup);
+      popup.querySelectorAll(".turno-opcion").forEach(el => {
+        el.addEventListener("click", () => {
+          const id = el.dataset.id;
+          const elegido = turnosArr.find(t => String(t.id) === String(id));
+          popup.remove();
+          resolve(elegido);
+        });
+      });
+      popup.querySelector("#btnCancelarSelTurno").onclick = () => { popup.remove(); resolve(null); };
+    });
+  }
 
-      box.querySelector(".btn-cancel").addEventListener("click", () => { backdrop.remove(); resolve(null); });
-      box.querySelector(".btn-create").addEventListener("click", async () => {
-        const pid = sel.value;
-        const pname = sel.selectedOptions[0]?.dataset?.name || sel.selectedOptions[0]?.textContent || "";
-        if (!pid) { alert("Seleccioná un punto"); return; }
-        // enviar crear_manual
-        try {
-          const payload = { fecha: fechaISO, hora_inicio: horaInicio, hora_fin: horaFin, punto_id: Number(pid), punto: pname, maximo_publicadores: 3 };
-          const res = await safeFetch(`${apiBaseTurnos}?accion=crear_manual`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          backdrop.remove();
-          resolve({ ok: res.ok !== false, ...payload }); // devolver payload para posteriores búsquedas
-        } catch (err) {
-          console.error("crear_manual error:", err);
-          alert("Error creando turno: " + err.message);
-          backdrop.remove();
-          resolve({ ok: false, error: err.message });
-        }
+  // ---------------- Popup crear turno (arrastrable) ----------------
+  async function mostrarPopupCreacionTurno(fecha, horaInicio, horaFin, celda) {
+    return new Promise(async (resolve, reject) => {
+      const anterior = document.getElementById("popupTurnoNuevo");
+      if (anterior) anterior.remove();
+
+      if (horaInicio === horaFin) {
+        const [h,m] = horaInicio.split(":").map(Number);
+        horaFin = `${String(h+1).padStart(2,'0')}:${String(m||0).padStart(2,'0')}`;
+      }
+
+      const popup = document.createElement("div");
+      popup.id = "popupTurnoNuevo";
+      popup.className = `fixed z-[9999] bg-white border border-gray-300 shadow-2xl rounded-lg p-4 w-72 animate-fadeIn text-sm`;
+      popup.innerHTML = `
+        <div class="font-semibold text-gray-800 mb-2">📅 ${fecha}<br>🕒 ${horaInicio} - ${horaFin}</div>
+        <label class="block text-sm text-gray-600 mb-1">Seleccioná el punto:</label>
+        <select id="selPuntoNuevo" class="w-full border rounded p-1 mb-3 text-sm"><option value="">Cargando puntos...</option></select>
+        <div class="flex justify-end gap-2">
+          <button id="btnCancelarPopup" class="text-sm px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Cancelar</button>
+          <button id="btnCrearPopup" class="text-sm px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600">Crear</button>
+        </div>
+      `;
+      document.body.appendChild(popup);
+
+      // position near celda (best effort)
+      try {
+        const rect = celda.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const popupHeight = 220;
+        let topPosition = rect.top + window.scrollY + 15;
+        let leftPosition = rect.left + window.scrollX + 15;
+        if (rect.bottom + popupHeight > viewportHeight) topPosition = Math.max(rect.top + window.scrollY - popupHeight - 30, 5);
+        popup.style.top = `${topPosition}px`; popup.style.left = `${leftPosition}px`; popup.style.position = "fixed";
+      } catch (e) { /* ignore position errors */ }
+
+      // draggable behavior (simple)
+      let isDragging = false, initialX=0, initialY=0, xOffset=0, yOffset=0;
+      popup.addEventListener("mousedown", (ev) => {
+        if (ev.button !== 0) return;
+        const tag = ev.target.tagName.toLowerCase();
+        if (["select","option","button","input","label"].includes(tag)) return;
+        isDragging = true; initialX = ev.clientX - xOffset; initialY = ev.clientY - yOffset;
+        popup.style.cursor = "grabbing";
+      });
+      document.addEventListener("mouseup", () => { isDragging = false; popup.style.cursor = "default"; });
+      document.addEventListener("mousemove", (ev) => {
+        if (!isDragging) return;
+        xOffset = ev.clientX - initialX; yOffset = ev.clientY - initialY;
+        popup.style.transform = `translate3d(${xOffset}px, ${yOffset}px, 0)`;
       });
 
-      backdrop.appendChild(box);
-      document.body.appendChild(backdrop);
+      // cargar puntos disponibles
+      const r = await safeFetch(`${apiBaseTurnos}?accion=puntos_disponibles&fecha=${fecha}`);
+      const puntos = (r.ok && Array.isArray(r.data)) ? r.data : [];
+      const sel = popup.querySelector("#selPuntoNuevo");
+      sel.innerHTML = puntos.length ? puntos.map(p => `<option value="${p.id}">${p.nombre}</option>`).join("") : `<option value="">(Sin puntos disponibles)</option>`;
+
+      const handleEscape = (ev) => { if (ev.key === "Escape") { popup.remove(); document.removeEventListener("keydown", handleEscape); resolve({ cancelled: true }); } };
+      document.addEventListener("keydown", handleEscape);
+
+      popup.querySelector("#btnCancelarPopup").addEventListener("click", () => { popup.remove(); document.removeEventListener("keydown", handleEscape); resolve({ cancelled: true }); });
+
+      popup.querySelector("#btnCrearPopup").addEventListener("click", async () => {
+        const puntoId = sel.value;
+        const puntoNombre = sel.selectedOptions[0]?.text || "";
+        if (!puntoId) { alert("Seleccioná un punto"); return; }
+        const postData = { fecha, hora_inicio: horaInicio, hora_fin: horaFin, punto: puntoNombre, punto_id: Number(puntoId), maximo_publicadores: 3 };
+        const resp = await safeFetch(`${apiBaseTurnos}?accion=crear_manual`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(postData)
+        });
+        if (!resp.ok || resp.data?.ok === false) {
+          popup.remove();
+          resolve({ ok: false, error: resp.data?.error || resp.error });
+          return;
+        }
+        popup.remove();
+        document.removeEventListener("keydown", handleEscape);
+        resolve({ ok: true, ...postData });
+      });
     });
   }
 
-  // ------------------------
-  // init
-  // ------------------------
-  async function init(opts = {}) {
-    if (window.PlanificadorInteractivo && window.PlanificadorInteractivo._initialized) return;
-    window.PlanificadorInteractivo = window.PlanificadorInteractivo || {};
-    window.PlanificadorInteractivo._initialized = true;
+  // ---------------- Semanal: render y creación de grid grande (vista tipo PHP) ----------------
+  async function renderSemanaFull() {
+    const cont = document.getElementById("gridSemana");
+    if (!cont) return;
+    cont.innerHTML = "";
 
-    const root = document.getElementById("planificador_turnos");
-    if (!root) return console.warn("No existe #planificador_turnos");
+    const dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+    const horas = Array.from({length: 12}, (_,i) => `${String(8 + i).padStart(2,'0')}:00`);
+    // establecer semanaBase si no
+    if (!semanaInicial) {
+      const hoy = new Date(); semanaInicial = getRangoSemana(hoy).lunes;
+    }
+    const grid = document.createElement("div");
+    grid.className = "grid border-t border-l";
+    grid.style.gridTemplateColumns = `100px repeat(7, 1fr)`;
+    // corner
+    grid.appendChild(document.createElement("div"));
+    dias.forEach(d => { const h = document.createElement("div"); h.textContent = d; h.className = "font-semibold text-center border-r border-b bg-indigo-50"; grid.appendChild(h); });
 
-    buildLayout(root);
-
-    // bind buttons
-    document.getElementById("pi_reload_btn").addEventListener("click", async () => {
-      await reloadAll();
-    });
-    document.getElementById("btnVistaSemanal").addEventListener("click", async () => {
-      document.getElementById("pi_contenedor_semanal").classList.remove("d-none");
-      document.getElementById("pi_contenedor_diario").classList.add("d-none");
-      document.getElementById("btnVistaDiaria").classList.remove("d-none");
-      document.getElementById("btnVistaSemanal").classList.add("d-none");
-      await cambiarSemana(0);
-    });
-    document.getElementById("btnVistaDiaria").addEventListener("click", () => {
-      document.getElementById("pi_contenedor_semanal").classList.add("d-none");
-      document.getElementById("pi_contenedor_diario").classList.remove("d-none");
-      document.getElementById("btnVistaDiaria").classList.add("d-none");
-      document.getElementById("btnVistaSemanal").classList.remove("d-none");
-    });
-
-    document.getElementById("btnPrevSemana").addEventListener("click", () => cambiarSemana(-1));
-    document.getElementById("btnNextSemana").addEventListener("click", () => cambiarSemana(1));
-
-    // initial loads
-    await Promise.all([cargarUsuarios(), cambiarSemana(0)]);
-    // render initial lists
-    renderUsuariosList(document.getElementById("pi_sidebar_users"));
-    renderTurnosList(document.getElementById("turnosListPlanif"));
-
-    // filter puntos on date change
-    const fechaInput = document.getElementById("pi_fecha_input");
-    fechaInput.value = formatISOlocal(new Date());
-    fechaInput.addEventListener("change", async () => {
-      const fecha = fechaInput.value;
-      if (!fecha) return;
-      try {
-        const puntos = await cargarPuntosDisponibles(fecha);
-        const sel = document.getElementById("pi_filtro_punto");
-        sel.innerHTML = `<option value="">Todos los puntos</option>`;
-        (puntos || []).forEach(p => {
-          const opt = document.createElement("option");
-          opt.value = p.id;
-          opt.textContent = p.nombre || p.nombre;
-          sel.appendChild(opt);
-        });
-      } catch (err) { console.warn("error cargar puntos:", err); }
-      // update daily list when changing date
-      await reloadAll();
+    horas.forEach(hora => {
+      const label = document.createElement("div"); label.textContent = hora; label.className = "text-right pr-2 text-sm border-r border-b bg-gray-50"; grid.appendChild(label);
+      for (let d = 0; d < 7; d++) {
+        const celda = document.createElement("div");
+        celda.className = "relative border-r border-b h-16 hover:bg-indigo-50 transition drop-turno empty-slot";
+        celda.dataset.dia = d + 1;
+        celda.dataset.hora = hora;
+        celda.addEventListener("dragover", e => { e.preventDefault(); celda.classList.add("ring","ring-indigo-300"); });
+        celda.addEventListener("dragleave", () => celda.classList.remove("ring","ring-indigo-300"));
+        celda.addEventListener("drop", e => { celda.classList.remove("ring","ring-indigo-300"); onDropUsuario(e); });
+        grid.appendChild(celda);
+      }
     });
 
-    // when reload, refresh sidebar users and daily turnos
-    async function reloadAll() {
-      await cargarUsuarios();
-      renderUsuariosList(document.getElementById("pi_sidebar_users"));
-      // reload current week/day view
-      await cambiarSemana(0);
-      renderTurnosList(document.getElementById("turnosListPlanif"));
+    cont.appendChild(grid);
+
+    // Insertar turnos visualmente (usar turnos[] local — asegúrate de cargar semana antes)
+    // Compute semanaBase if needed (already above)
+    const primera = turnos[0];
+    if (primera && primera.fecha) {
+      // set semanaInicial such that monday maps
+      const [yy,mm,dd] = primera.fecha.split("-").map(Number);
+      const primeraFecha = new Date(yy, mm-1, dd);
+      const diaSemana = (primeraFecha.getDay() + 6) % 7;
+      semanaInicial = new Date(primeraFecha);
+      semanaInicial.setDate(primeraFecha.getDate() - diaSemana);
     }
 
-    // expose some methods for debugging
-    window.PlanificadorInteractivo.reloadAll = reloadAll;
-    window.PlanificadorInteractivo.init = init;
-    console.log("PlanificadorInteractivo inicializado (Flask modernizado)");
+    // Put turns into grid
+    turnos.forEach(t => {
+      if (!t.fecha) return;
+      const [yy,mm,dd] = t.fecha.split("-").map(Number);
+      const fechaObj = new Date(yy, mm-1, dd);
+      const dia = (fechaObj.getDay() + 6) % 7; // lunes = 0
+      const horaInicio = parseInt((t.hora_inicio || "08:00").split(":")[0], 10);
+      const horaFin = parseInt((t.hora_fin || "09:00").split(":")[0], 10);
+      const duracion = Math.max(1, horaFin - horaInicio);
+      const fila = horaInicio - 8;
+      if (fila < 0) return;
+      // compute index in grid children
+      // grid children layout: 1 corner + 7 headers + (for each hour: 1 label + 7 cells) => top offset = 1 + 7
+      const topOffset = 1 + 7;
+      const idx = topOffset + (fila * (1 + 7)) + (dia + 1);
+      const celdaInicio = grid.children[idx];
+      if (!celdaInicio) return;
+
+      const asignados = t.asignados || 0;
+      const max = t.maximo_publicadores || 3;
+      const pct = Math.round((asignados / max) * 100);
+      const color = pct >= 80 ? "bg-green-500" : pct >= 40 ? "bg-yellow-400" : "bg-red-400";
+
+      const bloque = document.createElement("div");
+      bloque.className = `absolute inset-0 rounded text-xs text-white p-1 shadow ${color} overflow-hidden`;
+      bloque.textContent = `${t.hora_inicio}-${t.hora_fin} ${t.punto || ''}`;
+      bloque.title = `${asignados}/${max} (${pct}%)`;
+      bloque.style.height = `calc(${duracion} * 100%)`; bloque.style.top = "0"; bloque.style.left = "0"; bloque.style.right = "0"; bloque.style.zIndex = "5";
+
+      // color background for covered celdas
+      for (let i = 0; i < duracion; i++) {
+        const idxCelda = topOffset + ((fila + i) * (1 + 7)) + (dia + 1);
+        const celda = grid.children[idxCelda];
+        if (celda) celda.classList.add("bg-green-100");
+      }
+
+      celdaInicio.appendChild(bloque);
+    });
+
+    // Add markers/tooltips per cell
+    const celdas = cont.querySelectorAll(".drop-turno");
+    celdas.forEach(celda => {
+      const dia = parseInt(celda.dataset.dia);
+      const hora = celda.dataset.hora;
+      const fecha = calcularFechaPorDia(dia);
+      const lista = (turnos || []).filter(t => {
+        if (!t.fecha) return false;
+        if (t.fecha !== fecha) return false;
+        const hI = Number(t.hora_inicio.split(":")[0]) + Number(t.hora_inicio.split(":")[1]||0)/60;
+        const hF = Number(t.hora_fin.split(":")[0]) + Number(t.hora_fin.split(":")[1]||0)/60;
+        const [hSelH, hSelM] = hora.split(":").map(Number);
+        const hSel = hSelH + (hSelM || 0)/60;
+        return hSel >= hI && hSel < hF;
+      });
+      if (lista.length > 0) {
+        const marker = document.createElement("div");
+        marker.className = "absolute bottom-1 right-1 text-[10px] text-gray-500 bg-yellow-50 px-1 rounded border border-yellow-300";
+        marker.textContent = `${lista.length} turno${lista.length>1 ? "s" : ""}`;
+        celda.appendChild(marker);
+        celda.title = lista.map(t => `${t.hora_inicio}-${t.hora_fin} ${t.punto}`).join("\n");
+      }
+    });
+
+    activarCreacionTurnoGrid(); // enable select-to-create behavior
   }
 
-  // expose public
-  window.PlanificadorInteractivo = window.PlanificadorInteractivo || {};
-  window.PlanificadorInteractivo.init = init;
-  window.PlanificadorInteractivo._initialized = false;
+  // ---------------- Activar creación por selección en grilla semanal ----------------
+  let creandoTurno = null;
+  function activarCreacionTurnoGrid() {
+    const grid = document.getElementById("gridSemana");
+    if (!grid) return;
 
+    grid.addEventListener("mousedown", e => {
+      if (!e.target.classList.contains("drop-turno")) return;
+      e.preventDefault();
+      creandoTurno = { dia: e.target.dataset.dia, celdaInicio: e.target, celdasSeleccionadas: [e.target] };
+      e.target.classList.add("bg-blue-100","ring","ring-blue-300");
+    });
+
+    grid.addEventListener("mouseover", e => {
+      if (!creandoTurno) return;
+      const celda = e.target.closest(".drop-turno");
+      if (!celda || celda.dataset.dia !== creandoTurno.dia) return;
+      const todas = [...grid.querySelectorAll(`.drop-turno[data-dia="${creandoTurno.dia}"]`)];
+      const iInicio = todas.indexOf(creandoTurno.celdaInicio);
+      const iActual = todas.indexOf(celda);
+      creandoTurno.celdasSeleccionadas.forEach(c => c.classList.remove("bg-blue-200"));
+      const rango = todas.slice(Math.min(iInicio,iActual), Math.max(iInicio,iActual)+1);
+      rango.forEach(c => c.classList.add("bg-blue-200"));
+      creandoTurno.celdasSeleccionadas = rango;
+    });
+
+    grid.addEventListener("mouseup", async e => {
+      if (!creandoTurno) return;
+      const celdaFin = e.target.closest(".drop-turno");
+      if (!celdaFin) { // cleanup
+        if (creandoTurno && Array.isArray(creandoTurno.celdasSeleccionadas)) crearLimpiezaSeleccion();
+        creandoTurno = null; return;
+      }
+      const dia = parseInt(creandoTurno.dia);
+      const horaInicio = creandoTurno.celdaInicio.dataset.hora;
+      let horaFin = celdaFin.dataset.hora;
+      const [hFin,mFin] = horaFin.split(":").map(Number);
+      horaFin = `${String(hFin + 1).padStart(2,"0")}:${String(mFin||0).padStart(2,"0")}`;
+      const fechaTurno = calcularFechaPorDia(dia);
+      const rangoSeleccionado = [...(creandoTurno.celdasSeleccionadas || [])];
+      const result = await mostrarPopupCreacionTurno(fechaTurno, horaInicio, horaFin, celdaFin);
+      if (result && result.ok) {
+        rangoSeleccionado.forEach(c => { c.classList.remove("bg-blue-100","bg-blue-200","ring","ring-blue-300"); c.classList.add("bg-green-100"); });
+        const bloque = document.createElement("div");
+        bloque.className = "absolute inset-0 rounded text-xs text-white p-1 shadow bg-green-500 overflow-hidden";
+        bloque.textContent = `${horaInicio}-${horaFin} ${result.punto || ""}`;
+        const numCeldas = rangoSeleccionado.length;
+        bloque.style.height = `calc(${numCeldas} * 100%)`;
+        bloque.style.top = "0"; bloque.style.left = "0"; bloque.style.right = "0"; bloque.style.zIndex = "5";
+        if (rangoSeleccionado.length) rangoSeleccionado[0].appendChild(bloque);
+        mostrarAvisoCelda(celdaFin, "✓ Creado visualmente", "ok");
+      }
+      crearLimpiezaSeleccion();
+      creandoTurno = null;
+    });
+
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && creandoTurno) { crearLimpiezaSeleccion(); creandoTurno = null; } });
+  }
+
+  function crearLimpiezaSeleccion() {
+    if (creandoTurno && Array.isArray(creandoTurno.celdasSeleccionadas)) {
+      creandoTurno.celdasSeleccionadas.forEach(c => c.classList.remove("bg-blue-100","bg-blue-200","ring","ring-blue-300"));
+    }
+  }
+
+  // ---------------- util: calcularFechaPorDia según semanaInicial ----------------
+  function calcularFechaPorDia(dia) {
+    if (!semanaInicial) {
+      const hoy = new Date(); semanaInicial = getRangoSemana(hoy).lunes;
+    }
+    const fecha = new Date(semanaInicial);
+    fecha.setDate(semanaInicial.getDate() + (dia - 1));
+    const y = fecha.getFullYear(); const m = String(fecha.getMonth() + 1).padStart(2,'0'); const d = String(fecha.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // ---------------- Panel resumen ----------------
+  function actualizarPanelResumen() {
+    document.getElementById("countAsignados") && (document.getElementById("countAsignados").textContent = resumen.totalAsignados);
+    document.getElementById("countConflictos") && (document.getElementById("countConflictos").textContent = resumen.conflictos.length);
+    const listaConflictos = document.getElementById("listaConflictos");
+    if (listaConflictos) listaConflictos.innerHTML = resumen.conflictos.map(c => `<div>• ${c}</div>`).join("");
+    const totalTurnos = turnos.length;
+    resumen.turnosCompletos = Math.floor(resumen.totalAsignados / 3);
+    resumen.turnosVacantes = Math.max(0, totalTurnos - resumen.turnosCompletos);
+    document.getElementById("countCompletos") && (document.getElementById("countCompletos").textContent = resumen.turnosCompletos);
+    document.getElementById("countVacantes") && (document.getElementById("countVacantes").textContent = resumen.turnosVacantes);
+  }
+
+  // ---------------- Init: render layout minimal + listeners ----------------
+  const PI = {
+    _initialized: false,
+    init: async function (opts = {}) {
+      if (this._initialized) { console.log("PlanificadorInteractivo: ya inicializado"); return; }
+      this._initialized = true;
+
+      const root = document.getElementById("planificador_turnos");
+      if (!root) { console.warn("No existe #planificador_turnos"); return; }
+
+      if (!root.dataset.piBuilt) {
+        root.innerHTML = `
+          <div class="w-full flex gap-4">
+            <aside id="pi_sidebar" class="w-80 bg-white p-3 rounded shadow overflow-auto" style="max-height: 70vh;">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="font-semibold">Publicadores</h3>
+                <button id="pi_reload_btn" class="px-2 py-1 bg-gray-100 rounded text-sm">Recargar</button>
+              </div>
+              <div id="pi_sidebar_users" class="space-y-2"><div class="text-sm text-gray-500">Cargando usuarios...</div></div>
+            </aside>
+            <section id="pi_grid_container" class="flex-1 bg-white p-3 rounded shadow overflow-auto">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="font-semibold">Semana</h3>
+                <div class="flex gap-2 items-center">
+                  <input id="pi_fecha_input" type="date" class="border p-1 rounded"/>
+                  <select id="pi_filtro_punto" class="border p-1 rounded"><option value="">Todos los puntos</option></select>
+                  <button id="pi_apply_date" class="px-3 py-1 bg-blue-500 text-white rounded">Ir</button>
+                </div>
+              </div>
+              <div id="gridSemana" class="overflow-x-auto" style="min-width:700px;">
+                <div id="pi_grid_inner" style="min-width:900px;">
+                  <div class="text-sm text-gray-500">Calendario vacío (presione "Recargar" o seleccione fecha)</div>
+                </div>
+              </div>
+            </section>
+          </div>`;
+        root.dataset.piBuilt = "1";
+      }
+
+      // elements
+      this.el = {
+        root,
+        sidebarUsers: root.querySelector("#pi_sidebar_users"),
+        gridWrap: root.querySelector("#gridSemana"),
+        btnReload: root.querySelector("#pi_reload_btn")
+      };
+
+      this.el.btnReload?.addEventListener("click", async () => {
+        await Promise.all([cargarUsuarios(), loadPuntosFiltro(), renderGridSemana()]);
+        actualizarPanelResumen();
+      });
+
+      // initial load
+      await Promise.all([cargarUsuarios(), loadPuntosFiltro(), renderGridSemana()]);
+      await renderUsersList("pi_sidebar_users");
+      actualizarPanelResumen();
+      console.log("PlanificadorInteractivo: inicializado correctamente");
+    }
+  };
+
+  window.PlanificadorInteractivo = PI;
 })();
