@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, date, time
 # from turnos import api
 from turnos import bp_turnos
 from postulantes import bp_post
+from BotAsignador import bot_api
 # -------------------------------------------
 # Singletons de extensiones
 # -------------------------------------------
@@ -45,6 +46,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 app = Flask(__name__)
 app.register_blueprint(bp_turnos)
 app.register_blueprint(bp_post)
+app.register_blueprint(bot_api)
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)

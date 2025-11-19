@@ -61,9 +61,12 @@
       <button onclick="actualizarPipeline()" class="bg-blue-500 text-white px-3 py-1 rounded">Actualizar</button>
       <pre id="pipelineOutput" class="bg-black text-green-300 font-mono text-xs p-3 rounded overflow-y-auto h-[400px] whitespace-pre-wrap mt-3">(sin datos)</pre>
     </section>
+			
   </main>
 
   <!-- 🔸 Scripts -->
+  <!-- jQuery (OBLIGATORIO antes del planificador) -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="{{ url_for('static', filename='js/planificador_interactivo_flask.js') }}"></script>
   <script>
   // cuando se muestra el tab de entorno, cargar las configuraciones	
@@ -93,6 +96,90 @@
 	
 	
 }
+
+// ---------- PIPELINE BOT ----------
+let lastPipelineText = "";
+
+async function actualizarPipeline() {
+  const res = await fetch("../tmp/bot_log.json?ts=" + Date.now());
+  if (!res.ok) {
+    document.getElementById("pipelineOutput").innerText = "Error al cargar el pipeline.";
+    return;
+  }
+  const data = await res.json();
+
+  // Mostrar el texto si lo trae directo
+  if (data.pipeline_text) {
+    lastPipelineText = data.pipeline_text;
+    document.getElementById("pipelineOutput").innerText = data.pipeline_text;
+  } 
+  // O bien si hay un archivo disponible
+  else if (data.pipeline_url) {
+    try {
+      const txtRes = await fetch(".." + data.pipeline_url);
+      const txt = await txtRes.text();
+      lastPipelineText = txt;
+      document.getElementById("pipelineOutput").innerText = txt;
+    } catch (e) {
+      document.getElementById("pipelineOutput").innerText = "Error leyendo archivo del pipeline.";
+    }
+  } 
+  else {
+    document.getElementById("pipelineOutput").innerText = "No hay datos de pipeline disponibles aún.";
+  }
+}
+
+// Mostrar el pipeline más reciente en una pestaña nueva (opcional)
+function abrirPipelineEnNuevaPestaña() {
+  if (!lastPipelineText) {
+    alert("No hay pipeline cargado aún.");
+    return;
+  }
+  const w = window.open();
+  w.document.write('<pre style="background:#000;color:#0f0;font-family:monospace;padding:1em;">' + 
+                   lastPipelineText.replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;') +
+                   '</pre>');
+  w.document.title = "Pipeline Bot Asignador";
+}
+
+// ------ LOG DEL BOT (JSON) ------
+async function actualizarBotLog() {
+  try {
+    const res = await fetch("../tmp/bot_log.json?cache=" + Date.now());
+    if (!res.ok) throw new Error(`Error al leer bot_log.json (${res.status})`);
+    const jsonText = await res.text();
+
+    try {
+      // Intenta formatear bonito
+      const data = JSON.parse(jsonText);
+      document.getElementById("botLogOutput").innerHTML = syntaxHighlight(data);
+    } catch {
+      document.getElementById("botLogOutput").innerText = jsonText;
+    }
+  } catch (err) {
+    document.getElementById("botLogOutput").innerText = "Error al cargar log: " + err.message;
+  }
+}
+
+function abrirBotLogNuevaPestaña() {
+  window.open("../tmp/bot_log.json", "_blank");
+}
+
+// ------ Formateador de JSON con colores ------
+function syntaxHighlight(json) {
+  if (typeof json != "string") json = JSON.stringify(json, undefined, 2);
+  json = json.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|\b[\d.]+\b)/g, function (match) {
+    let cls = "text-green-400";
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) cls = "text-blue-300 font-semibold";
+      else cls = "text-yellow-300";
+    } else if (/true|false/.test(match)) cls = "text-purple-300";
+    else if (/null/.test(match)) cls = "text-gray-400 italic";
+    return `<span class="${cls}">${match}</span>`;
+  });
+}
+
   </script>
 </body>
 </html>
