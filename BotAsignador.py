@@ -175,7 +175,7 @@ class BotAsignador:
             turno_id = turno.id if isinstance(turno, Turno) else int(turno.get("id"))
             self.log_pipeline(f"=== Procesando turno input: {turno_id}")
             # comenzamos transacción
-            with self.session.begin():
+            with self.session.begin_nested():
                 # refrescar turno
                 t = self.session.query(Turno).get(turno_id)
                 if not t:
@@ -574,17 +574,18 @@ def api_ejecutar():
                     continue
 
                 bot.log(f"Procesando turno #{t.id} {t.fecha} {t.hora_inicio}-{t.hora_fin}")
-                asignados_turno = bot.asignar_turno(t)
+                res = bot.run_for_turno(t.id, commit=True)
+                asignados_turno = res.get("assigned", [])
                 asignados.extend(asignados_turno)
 
             # guardar log + pipeline
             bot.finalize_pipeline()
-            return {
+            return jsonify({
                 "ok": True,
                 "asignados": asignados,
                 "pipeline_text": bot.pipeline_text
-            }
-        if mode == "turno":
+            })
+        elif mode == "turno":
             turno_id = data.get("turno_id")
             if not turno_id:
                 return jsonify({"ok": False, "error": "turno_id requerido para modo 'turno'"}), 400
