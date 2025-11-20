@@ -29,14 +29,26 @@
 
   <!-- 🔷 Encabezado -->
   <header class="bg-blue-600 text-white p-4 flex justify-between items-center">
-    <a href="https://metropoliplan.appwebterritorios.com" title="Volver atrás">⟵ Inicio</a>
-    <h1 class="text-lg font-semibold">Gestión de Turnos — PPAM 2025</h1>
+    <a href="https://ppamappcaba.pythonanywhere.com/main" title="Volver atrás">⟵ Inicio</a>
+    <h1 class="text-lg font-semibold">Panel de planificación de Turnos — PPAM 2025</h1>
     <img src="{{ url_for('static', filename='imagenes/logo_ppam.png') }}" alt="PPAM logo" class="ppam-logo">
   </header>
-
-  <!-- 🔹 Contenedor principal -->
+<nav class="flex  bg-gray-200 p-2">  
+  <div class="mt-4 flex gap-3">
+      <button id="cargarTurnosBtn" onclick="mostrarTab('turnos')" class="bg-cyan-500 text-white px-3 py-1 rounded">Cargar Turnos</button>
+	  <button id="cargarPuntosBtn" onclick="mostrarTab('puntos')" class="tab-btn px-3 py-1 bg-lime-500 rounded mr-2">Puntos</button>
+    <button onclick="mostrarTab('solicitudes')" class="tab-btn px-3 py-1 bg-teal-500 rounded">Solicitudes</button>
+	   <button onclick="mostrarTab('planificar')" class="tab-btn px-3 py-1 bg-indigo-500 text-white rounded ">Planificar Turnos</button>
+      <button id="asignarTurno" class="bg-emerald-500 text-white px-3 py-1 rounded">Asignar AUTO</button>
+      <button onclick="mostrarTab('pipeline')" class="bg-purple-600 text-white px-3 py-1 rounded">Ver flujo Bot</button>
+	  <button onclick="enviarNotificaciones()" class="tab-btn px-3 py-1 bg-amber-500 text-white rounded ">Enviar notificaciones</button>
+	 <button onclick="mostrarTab('entorno')" class="tab-btn px-3 py-1 bg-green-500 rounded">Ver entorno</button>
+	 <button onclick="mostrarTab('estadisticas')" class="tab-btn px-3 py-1 bg-red-500 text-white rounded ">Estad&iacute;sticas</button>
+	 </div>
+</nav>
+  <!-- 🔹 Contenedor principal &nbsp; -->
   <main class="p-4">
-    <h2 class="text-xl font-bold mb-2">Panel de planificación de turnos</h2>
+    <!-- <h2 class="text-xl font-bold mb-2">Panel de planificación de turnos</h2> -->
 
      <!-- TAB PLANIFICAR -->
     <div id="tab-planificar" class="tab-content hidden">
@@ -44,16 +56,51 @@
       <div class="flex justify-between items-center mb-4">     	
      </div>
      </div>	  
-
-    <div class="mt-4 flex gap-3">
-      <button id="cargarTurnosBtn" class="bg-blue-500 text-white px-3 py-1 rounded">Cargar Turnos</button>
-	   <button onclick="mostrarTab('planificar')" class="tab-btn px-4 py-2 bg-indigo-500 text-white rounded ">Planificar Turnos</button>&nbsp;
-      <button id="asignarTurno" class="bg-emerald-500 text-white px-3 py-1 rounded">Asignar AUTO</button>
-      <button onclick="mostrarTab('pipeline')" class="bg-purple-600 text-white px-3 py-1 rounded">Ver flujo Bot</button>
-	  
+	 <!-- TAB PUNTOS -->
+    <div id="tab-puntos" class="tab-content hidden">
+      <h2 class="text-xl font-bold mb-4">Puntos de Predicación</h2>
+      <div id="puntosList" class="grid gap-4"></div>
     </div>
+	
+  <!-- TAB SOLICITUDES -->
+    <div id="tab-solicitudes" class="tab-content hidden">
+      <h2 class="text-xl font-bold mb-4">Solicitudes</h2>
 
-    <div id="turnosList" class="mt-4 grid gap-4"></div>
+      <!-- Formulario -->
+      <form id="formSolicitud" class="bg-white p-4 rounded shadow mb-4 flex flex-col gap-2 max-w-md">
+       <label for="turnoSelect">Selecciona punto:</label>
+<select id="turnoSelect" name="punto_id" class="border rounded w-full p-1"></select>
+	  
+        <label>
+          Rol:
+          <select id="rolSelect" name="rol" class="border rounded w-full p-1">
+            <option value="publicador">Publicador</option>
+            <option value="capitan">Capitán</option>
+          </select>
+        </label>
+        <button type="submit" class="bg-green-500 text-white px-3 py-1 rounded">Postularse</button>
+      </form>
+
+      <!-- Lista -->
+      <div id="solicitudesList" class="grid gap-4"></div>
+    </div>   
+<!-- TAB TURNOS -->
+    <div id="tab-turnos" class="tab-content hidden">
+      <h2 class="text-xl font-bold mb-4">Turnos</h2>
+      <div id="turnosList" class="mt-4 grid gap-4"></div>
+    </div>
+<!-- TAB ENTORNO -->
+<div id="tab-entorno" class="tab-content hidden">
+  <h2 class="text-xl font-bold mb-4">Configuraciones del Entorno</h2>
+  <div id="configList" class="grid gap-4"></div>
+</div>
+<!-- TAB ESTADISTICAS -->
+<div id="tab-estadisticas" class="tab-content hidden">
+  <h2 class="text-xl font-bold mb-4">Estadísticas</h2>
+  <div id="statsContainer" class="grid grid-cols-2 gap-4"></div>
+</div>
+
+    
 
     <!-- 🔸 Pipeline -->
     <section id="tab-pipeline" class="hidden mt-6">
@@ -96,6 +143,7 @@
 	function mostrarTab(tab) {
   document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
   const activeTab = document.getElementById("tab-" + tab);
+ 
   activeTab.classList.remove("hidden");
 
   // 🔹 Desoculta elementos internos del tab
@@ -113,9 +161,24 @@
     PlanificadorInteractivo.init();
     }
 	
-	if (tab === "turnos") {
-    document.getElementById("modalCrear").classList.add("hidden");
+	if (tab === "turnos") {	
+    // document.getElementById("modalCrear").classList.add("hidden");
+	// alert("Mostrando turnos");
     }
+	
+	if (tab === "puntos") {
+	    cargarPuntos();
+}
+
+if (tab === "solicitudes") {
+    cargarSolicitudes();
+    cargarSelectPuntos();
+}
+
+if (tab === "estadisticas") {
+	    verEstadisticas();
+}
+
 	
 	
 }
@@ -306,6 +369,254 @@ async function confirmarAsignacionRango() {
     // refrescar pipeline para ver info
     actualizarPipeline();
 }
-  </script>
+ 
+async function cargarPuntos() {
+    const cont = document.getElementById("puntosList");
+    cont.innerHTML = "<div class='text-gray-600 text-sm'>Cargando puntos...</div>";
+
+    try {
+        const res = await fetch("/api/puntos");
+        const puntos = await res.json();
+
+        cont.innerHTML = "";
+
+        if (puntos.length === 0) {
+            cont.innerHTML = "<div>No hay puntos cargados.</div>";
+            return;
+        }
+
+        puntos.forEach(p => {
+            const card = document.createElement("div");
+            card.className = "p-3 bg-white shadow rounded border border-gray-200";
+
+            card.innerHTML = `
+                <h3 class="font-bold text-lg mb-1">${p.nombre}</h3>
+                <p><b>Dirección:</b> ${p.direccion || '—'}</p>
+                <p><b>Contacto:</b> ${p.contacto || '—'}</p>
+                <p><b>Teléfono:</b> ${p.telefono || '—'}</p>
+            `;
+
+            cont.appendChild(card);
+        });
+
+    } catch (e) {
+        cont.innerHTML = "<div class='text-red-600'>Error cargando puntos.</div>";
+    }
+}
+
+ // ------ SOLICITUDES ------
+    async function cargarSolicitudes() {
+      const res = await fetch("/api/solicitudez");
+      const solicitudes = await res.json();
+      const list = document.getElementById("solicitudesList");
+      list.innerHTML = "";
+
+      solicitudes.forEach(s => {
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-lg shadow p-4 flex justify-between";
+        card.innerHTML = `
+          <div>
+            <h3 class="font-semibold">Punto: ${s.punto}</h3>
+			<h3 class="font-semibold">Turno: ${s.fecha}</h3>
+			<h3 class="font-semibold">Publicador: ${s.usuario}</h3>
+            <p class="text-gray-600">Rol: ${s.rol}</p>
+            <p class="text-gray-500">Estado: ${s.estado}</p>
+          </div>
+          <button onclick="eliminarSolicitud(${s.id})" class="bg-red-500 text-white px-3 py-1 rounded">Cancelar</button>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    document.getElementById("formSolicitud").addEventListener("submit", async e => {
+      e.preventDefault();
+      const data = new FormData(e.target);
+      await fetch("/api/solicitudez", { method: "POST", body: data });
+
+      cargarSolicitudes();
+    });
+
+    async function eliminarSolicitud(id) {
+	await fetch(`/api/solicitudez/${id}`, { method: "DELETE" });
+    cargarSolicitudes();
+    }
+	
+	async function cargarSelectPuntos() {
+  const res = await fetch("/api/puntos");
+  const puntos = await res.json();
+
+  const select = document.getElementById("turnoSelect");
+  select.innerHTML = "<option value=''>-- Selecciona un punto --</option>";
+
+  puntos.forEach(p => {
+    const option = document.createElement("option");
+    option.value = p.id;        // 👈 este es el ID que se guarda en turnos.punto_id
+    option.textContent = p.nombre; // 👈 lo que ve el usuario
+    select.appendChild(option);
+  });
+}
+
+async function enviarNotificaciones() {
+     // await fetch("../envios/cron_notificaciones.php", {
+     //  });
+	  
+	 
+  try {
+    const res = await fetch("/api/notificaciones/enviar", {
+      method: "POST"
+    });
+
+
+    // 1. Verificar si la respuesta es OK (status 200-299)
+    if (!res.ok) {
+      throw new Error(`Error en la petición: ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    // 2. Comprobar si el JSON contiene un mensaje de error del backend
+    if (data.error) {
+      alert(data.error); // Muestra el mensaje de error del backend
+      console.error('Error del backend:', data.error);
+    } else {
+      // 3. Si no hay error, el proceso fue exitoso
+      alert(data.msj);
+  
+      console.log('Mensaje del backend:', data.msj);
+  
+      cargarTurnos(); // Recarga la lista de turnos
+    }
+  } catch (error) {
+    // 4. Capturar errores de red o errores de parseo de JSON
+    // alert("Hubo un problema con la operación. Intente nuevamente.");
+    console.error('Error en la operación:', error);
+  }
+  
+   cargarTurnos();
+   cargarSolicitudes();
+} 
+
+// ------ CONFIGURACIONES DEL ENTORNO (editable) ------
+async function cargarConfiguraciones() {
+  try {
+    const res = await fetch("/api/config/list");
+    const data = await res.json();
+
+    const list = document.getElementById("configList");
+    list.innerHTML = "";
+
+    if (!data.ok) {
+      list.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded">Error: ${data.error}</div>`;
+      return;
+    }
+
+    const configuraciones = data.configuraciones;
+
+    configuraciones.forEach(cfg => {
+      const card = document.createElement("div");
+      card.className = "bg-white rounded-lg shadow p-4 border border-gray-200";
+      card.innerHTML = `
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-lg font-semibold">${cfg.seccion} / ${cfg.clave}</h3>
+          <span class="text-sm bg-gray-100 px-2 py-1 rounded">${cfg.tipo}</span>
+        </div>
+        <input id="valor-${cfg.id}" type="text" value="${cfg.valor}" 
+               class="border rounded w-full p-2 text-gray-700" />
+        <div class="flex justify-end mt-2">
+          <button onclick="guardarConfiguracion(${cfg.id})" 
+                  class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+            💾 Guardar
+          </button>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+  } catch (error) {
+    console.error("Error cargando configuraciones:", error);
+    const list = document.getElementById("configList");
+    list.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded">Error al obtener configuraciones</div>`;
+  }
+}
+
+// Guarda un valor editado
+async function guardarConfiguracion(id) {
+  const valor = document.getElementById(`valor-${id}`).value;
+
+  try {
+    const res = await fetch("/api/config/save", {
+    method: "POST",
+    body: new URLSearchParams({ id, valor })
+    });
+
+    const data = await res.json();
+
+    if (data.ok) {
+      alert("Configuración actualizada correctamente.");
+    } else {
+      alert("Error: " + data.error);
+    }
+  } catch (err) {
+    alert("Error de red o servidor.");
+    console.error(err);
+  }
+}
+
+async function verEstadisticas() {
+  
+  const box = document.getElementById("statsContainer");
+  box.innerHTML = "Cargando datos...";
+
+  const url = window.location.origin + "/api/estadisticas";
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (!data.ok) {
+    box.innerHTML = "<div class='text-red-600'>Error al cargar estadísticas</div>";
+    return;
+  }
+
+  const d = data.data;
+
+  const html = `
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Publicadores</p>
+      <p class="text-3xl font-bold">${d.publicadores}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Puntos</p>
+      <p class="text-3xl font-bold">${d.puntos}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Turnos totales</p>
+      <p class="text-3xl font-bold">${d.turnos_totales}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Turnos hoy</p>
+      <p class="text-3xl font-bold">${d.turnos_hoy}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Solicitudes</p>
+      <p class="text-3xl font-bold">${d.solicitudes_pendientes}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Experiencias</p>
+      <p class="text-3xl font-bold">${d.experiencias}</p>
+    </div>
+
+    <div class="bg-white p-4 rounded shadow text-center">
+      <p class="text-gray-500 text-sm">Ausencias vigentes</p>
+      <p class="text-3xl font-bold">${d.ausencias_vigentes}</p>
+    </div>
+  `;
+
+  box.innerHTML = html;
+}
+</script>
+
 </body>
 </html>

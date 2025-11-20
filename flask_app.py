@@ -22,6 +22,7 @@ from modelos import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, date, time
+from sqlalchemy import func
 # from turnos import api
 from turnos import bp_turnos
 from postulantes import bp_post
@@ -283,7 +284,22 @@ def puntos_index():
         abort(403, description="No tenés permisos para acceder a esta función.")
     puntos = PuntoPredicacion.query.all()
     return render_template("puntos.html", puntos=puntos, punto=None,time_to_str=time_to_str)
+@app.route("/api/puntos")
+@login_required
+def api_listar_puntos():
+    puntos = PuntoPredicacion.query.all()
 
+    data = []
+    for p in puntos:
+        data.append({
+            "id": p.id,
+            "nombre": p.punto_nombre,
+            "direccion": p.direccion_deposito or "",
+            "contacto": p.contacto_deposito or "",
+            "telefono": p.telefono_deposito or ""
+        })
+
+    return jsonify(data)
 
 @app.route("/puntos/guardar", methods=["POST"])
 @login_required
@@ -466,7 +482,104 @@ def solicitudes_eliminar(id):
     return redirect(url_for("solicitudes_index"))
 
 
-# -------------------------------------------
+# -------------------------
+# LISTAR SOLICITUDES
+# -------------------------
+@app.route("/api/solicitudez", methods=["GET"])
+def api_listar_solicitudes():
+    solicitudes = SolicitudTurno.query.all()
+
+    data = []
+    for s in solicitudes:
+        data.append({
+            "id": s.id,
+            "punto": s.punto.punto_nombre if s.punto else "",
+            "fecha": str(s.hora_inicio) + " - " + str(s.hora_fin),
+            "usuario": s.publicador.nombre + " " + s.publicador.apellido if s.publicador else "",
+            "rol": s.frecuencia,
+            "estado": "Activa"
+        })
+
+    return jsonify(data)
+
+
+# -------------------------
+# CREAR SOLICITUD
+# -------------------------
+@app.route("/api/solicitudez", methods=["POST"])
+def api_crear_solicitud():
+    punto_id = request.form.get("punto_id")
+    rol = request.form.get("rol")
+
+    nueva = SolicitudTurno(
+        punto_id=punto_id,
+        publicador_id=current_user.id,
+        frecuencia=rol,
+        hora_inicio="08:00",
+        hora_fin="10:00",
+        dia="lunes"
+    )
+
+    db.session.add(nueva)
+    db.session.commit()
+
+    return jsonify({"ok": True})
+
+
+# -------------------------
+# ELIMINAR SOLICITUD
+# -------------------------
+@app.route("/api/solicitudez/<int:id>", methods=["DELETE"])
+def api_eliminar_solicitud(id):
+    s = SolicitudTurno.query.get(id)
+    if not s:
+        return jsonify({"ok": False, "error": "No existe"}), 404
+
+    db.session.delete(s)
+    db.session.commit()
+
+    return jsonify({"ok": True})
+    
+@app.route("/api/notificaciones/enviar", methods=["POST"])
+@login_required
+def api_enviar_notificaciones():
+    if current_user.rol != "Admin":
+        return jsonify({"ok": False, "error": "No autorizado"}), 403
+
+    try:
+        hoy = date.today()
+
+        # buscar turnos desde hoy
+        turnos = Turno.query.filter(Turno.fecha >= hoy).order_by(Turno.fecha.asc()).all()
+
+        if not turnos:
+            return jsonify({"ok": True, "msj": "No hay turnos para notificar."})
+
+        enviados = 0
+        errores = []
+
+        for t in turnos:
+            try:
+                enviar_notificacion_turno(t)
+                enviados += 1
+            except Exception as e:
+                errores.append(str(e))
+
+        return jsonify({
+            "ok": True,
+            "enviados": enviados,
+            "errores": errores,
+            "msj": f"Proceso finalizado. Turnos procesados: {enviados}"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": f"Error general: {str(e)}"
+        }), 500
+
+
+# ------------------------------------------- FIN NOTIFICACIONES -------------------------------------------------
 
 
 
@@ -643,12 +756,6 @@ def ausencias_eliminar(id):
 
 #----------------------CONFIGURACION---------------------------------------------------------------------------------
 
-
-
-
-
-
-
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
 
 def load_config():
@@ -738,9 +845,83 @@ def configuracion():
     return render_template("configuracion.html", config=config)
 
 
+@app.route("/api/config/list", methods=["GET"])
+@login_required
+def api_config_list():
+    if current_user.rol != "Admin":
+        return jsonify({"ok": False, "error": "Sin permisos"}), 403
 
+    cfg = load_config()
+    configuraciones = []
 
+    # convertimos el dict en lista de objetos (idéntico a tu frontend)
+    for clave, valor in cfg.items():
+        configuraciones.append({
+            "id": clave,            # clave será el identificador
+            "seccion": "general",
+            "clave": clave,
+            "tipo": type(valor).__name__,
+            "valor": valor
+        })
 
+    return jsonify({"ok": True, "configuraciones": configuraciones})
+    
+@app.route("/api/config/save", methods=["POST"])
+@login_required
+def api_config_save():
+    if current_user.rol != "Admin":
+        return jsonify({"ok": False, "error": "Sin permisos"}), 403
+
+    key = request.form.get("id")
+    valor = request.form.get("valor")
+
+    if not key:
+        return jsonify({"ok": False, "error": "Falta clave"}), 400
+
+    cfg = load_config()
+
+    if key not in cfg:
+        return jsonify({"ok": False, "error": "Clave inexistente"}), 404
+
+    # convertir tipo automáticamente
+    actual = cfg[key]
+
+    if isinstance(actual, bool):
+        valor = valor.lower() in ("1", "true", "on", "si")
+    elif isinstance(actual, int):
+        try:
+            valor = int(valor)
+        except:
+            return jsonify({"ok": False, "error": "Debe ser numérico"})
+    # strings ya están OK
+
+    cfg[key] = valor
+    save_config(cfg)
+
+    return jsonify({"ok": True})
+
+#*************************** ESTADISTICAS ************************************************************************
+@app.route("/api/estadisticas")
+@login_required
+def api_estadisticas():
+    if current_user.rol != "Admin":
+        return jsonify({"ok": False, "error": "Sin permisos"}), 403
+
+    hoy = date.today()
+
+    data = {
+        "publicadores": db.session.query(func.count(Publicador.id)).scalar(),
+        "puntos": db.session.query(func.count(PuntoPredicacion.id)).scalar(),
+        "turnos_totales": db.session.query(func.count(Turno.id)).scalar(),
+        "turnos_hoy": db.session.query(func.count(Turno.id)).filter(Turno.fecha == hoy).scalar(),
+        "solicitudes_pendientes": db.session.query(func.count(SolicitudTurno.id)).scalar(),
+        "experiencias": db.session.query(func.count(Experiencia.id)).scalar(),
+        "ausencias_vigentes": db.session.query(func.count(Ausencia.id))
+            .filter(Ausencia.fecha_inicio <= hoy, Ausencia.fecha_fin >= hoy)
+            .scalar()
+    }
+
+    return jsonify({"ok": True, "data": data})
 
 #********************TURNOS------*********************************************************************************
 
