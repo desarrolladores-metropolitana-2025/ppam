@@ -1,0 +1,3 @@
+[2025-11-20T14:36:39.707996] === Procesando turno input: 13
+[2025-11-20T14:36:39.708207] Turno #13: 4/4 ocupados
+[2025-11-20T14:36:39.708219] Turno ya completo.

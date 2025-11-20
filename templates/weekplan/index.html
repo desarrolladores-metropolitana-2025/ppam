@@ -61,6 +61,29 @@
       <button onclick="actualizarPipeline()" class="bg-blue-500 text-white px-3 py-1 rounded">Actualizar</button>
       <pre id="pipelineOutput" class="bg-black text-green-300 font-mono text-xs p-3 rounded overflow-y-auto h-[400px] whitespace-pre-wrap mt-3">(sin datos)</pre>
     </section>
+	
+	<!-- MODAL: Asignación automática por rango -->
+<div id="modalRango" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+  <div class="bg-white p-6 rounded shadow-xl w-[320px]">
+    <h2 class="text-xl font-bold mb-4">Asignación Automática</h2>
+
+    <label class="block mb-2">
+      Desde:
+      <input id="asigDesde" type="date" class="form-control">
+    </label>
+
+    <label class="block mb-4">
+      Hasta:
+      <input id="asigHasta" type="date" class="form-control">
+    </label>
+
+    <div class="flex justify-end gap-3">
+      <button onclick="cerrarModalRango()" class="px-3 py-1 bg-gray-500 text-white rounded">Cancelar</button>
+      <button onclick="confirmarAsignacionRango()" class="px-3 py-1 bg-emerald-600 text-white rounded">Asignar</button>
+    </div>
+  </div>
+</div>
+
 			
   </main>
 
@@ -180,6 +203,109 @@ function syntaxHighlight(json) {
   });
 }
 
+document.getElementById("cargarTurnosBtn").addEventListener("click", cargarTurnos);
+
+async function cargarTurnos() {
+  const cont = document.getElementById("turnosList");
+  cont.innerHTML = "Cargando...";
+
+  const res = await fetch("/api/turnos?accion=listar")
+  const turnos = await res.json();
+
+  cont.innerHTML = "";
+
+  turnos.forEach(t => {
+    const card = document.createElement("div");
+    card.className = "p-3 bg-white shadow rounded";
+
+    card.innerHTML = `
+      <div class="font-bold text-lg">Turno #${t.id}</div>
+      <div>${t.fecha} — ${t.hora_inicio} a ${t.hora_fin}</div>
+      <div><b>Punto:</b> ${t.punto}</div>
+      <div class="mt-2">
+          <button class="asignarBtn bg-emerald-600 text-white px-2 py-1 rounded" data-id="${t.id}">
+            Ejecutar Bot para este turno
+          </button>
+      </div>
+    `;
+
+    cont.appendChild(card);
+  });
+
+  // Activar botones “Ejecutar Bot”
+  document.querySelectorAll(".asignarBtn").forEach(btn => {
+    btn.addEventListener("click", () => ejecutarBot(btn.dataset.id));
+  });
+}
+
+async function ejecutarBot(turnoID) {
+  alert("Ejecutando bot para turno " + turnoID);
+
+  const res = await fetch("/api/bot/ejecutar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode: "turno",
+      turno_id: parseInt(turnoID)
+    })
+  });
+
+  const data = await res.json();
+  console.log("Respuesta del bot:", data);
+
+  if (!data.ok) {
+    alert("Error: " + data.error);
+    return;
+  }
+
+  alert("Bot ejecutado. Usuarios asignados: " + JSON.stringify(data.assigned));
+
+  // refrescar pipeline visible
+  actualizarPipeline();
+}
+// ------------------------ ASIGNAR AUTO -----------------------------------------
+// Abrir modal
+document.getElementById("asignarTurno").addEventListener("click", () => {
+    document.getElementById("modalRango").classList.remove("hidden", "opacity-0");
+});
+
+// Cerrar modal
+function cerrarModalRango() {
+    document.getElementById("modalRango").classList.add("hidden");
+}
+
+// Confirmar y llamar API
+async function confirmarAsignacionRango() {
+    const desde = document.getElementById("asigDesde").value;
+    const hasta = document.getElementById("asigHasta").value;
+
+    if (!desde || !hasta) {
+        alert("Debe ingresar ambas fechas.");
+        return;
+    }
+
+    cerrarModalRango();
+
+    const payload = {
+        mode: "rango",
+        fecha_desde: desde,
+        fecha_hasta: hasta
+    };
+
+    const res = await fetch("/api/bot/asignar_rango", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    console.log("Asignación resultado:", data);
+
+    alert("Asignación automática por rango completa. Revise el pipeline.");
+
+    // refrescar pipeline para ver info
+    actualizarPipeline();
+}
   </script>
 </body>
 </html>

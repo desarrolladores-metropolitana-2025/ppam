@@ -1,7 +1,7 @@
 # flask_app.py
 import os
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, date, time
 # from turnos import api
 from turnos import bp_turnos
 from postulantes import bp_post
-from BotAsignador import bot_api
+from BotAsignador import bot_api, BotAsignador
 # -------------------------------------------
 # Singletons de extensiones
 # -------------------------------------------
@@ -131,6 +131,35 @@ def main_page():
 @app.route("/weekplan/")
 def weekplan():
     return render_template("weekplan/index.html")
+    
+@app.route("/api/bot/asignar_rango", methods=["POST"])
+def api_bot_asignar_rango():
+    data = request.get_json() or {}
+    f1 = data.get("fecha_desde")
+    f2 = data.get("fecha_hasta")
+
+    if not f1 or not f2:
+        return jsonify({"ok": False, "error": "Faltan fechas"}), 400
+
+    try:
+        desde = datetime.strptime(f1, "%Y-%m-%d").date()
+        hasta = datetime.strptime(f2, "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"ok": False, "error": "Fechas inválidas"}), 400
+
+    # acá llamamos al BotAsignador
+    
+    bot = BotAsignador()
+
+    resultado = bot.ejecutar({
+        "mode": "rango",
+        "fecha_desde": f1,
+        "fecha_hasta": f2
+    })
+
+    return jsonify(resultado)
+
+
 
 # PAGINA DE ERRORES:
 

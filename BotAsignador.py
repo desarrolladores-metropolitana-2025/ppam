@@ -549,6 +549,40 @@ def api_ejecutar():
     bot = BotAsignador(session=db.session)
 
     try:
+        if mode == "rango":
+            f1 = datetime.datetime.strptime(data.get("fecha_desde"), "%Y-%m-%d").date()
+            f2 = datetime.datetime.strptime(data.get("fecha_hasta"), "%Y-%m-%d").date()
+
+
+            bot.log(f"=== Asignación por rango {f1} → {f2} ===")
+
+            q = Turno.query.filter(Turno.fecha >= f1, Turno.fecha <= f2).order_by(Turno.fecha, Turno.hora_inicio)
+            turnos = q.all()
+
+            asignados = []
+
+            for t in turnos:
+                incompleto = not all([
+                    t.publicador1_id,
+                    t.publicador2_id,
+                    t.publicador3_id,
+                    t.publicador4_id
+                ])
+                if not incompleto:
+                    bot.log(f"Turno #{t.id} completo → saltando")
+                    continue
+
+                bot.log(f"Procesando turno #{t.id} {t.fecha} {t.hora_inicio}-{t.hora_fin}")
+                asignados_turno = bot.asignar_turno(t)
+                asignados.extend(asignados_turno)
+
+            # guardar log + pipeline
+            bot.finalize_pipeline()
+            return {
+                "ok": True,
+                "asignados": asignados,
+                "pipeline_text": bot.pipeline_text
+            }
         if mode == "turno":
             turno_id = data.get("turno_id")
             if not turno_id:
@@ -563,6 +597,7 @@ def api_ejecutar():
         current_app.logger.exception("Error en /api/bot/ejecutar")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+        
 
 @bot_api.route("/estado", methods=["GET"])
 def api_estado():

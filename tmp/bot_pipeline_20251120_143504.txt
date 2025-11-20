@@ -1,0 +1,14 @@
+[2025-11-20T14:35:04.270366] === Procesando turno input: 13
+[2025-11-20T14:35:04.270601] Turno #13: 0/4 ocupados
+[2025-11-20T14:35:04.270623] Paso 1: solicitudes aprobadas (publicador_id presente en solicitudes_turno)
+[2025-11-20T14:35:04.333285] Asignado aprobado: Usuario 1
+[2025-11-20T14:35:04.333308] Usuario 1 ya en turno -> skip
+[2025-11-20T14:35:04.333320] Usuario 1 ya en turno -> skip
+[2025-11-20T14:35:04.337738] Asignado aprobado: Usuario 5
+[2025-11-20T14:35:04.343004] Asignado aprobado: Usuario 7
+[2025-11-20T14:35:04.348207] Asignado aprobado: Usuario 8
+[2025-11-20T14:35:04.348238] Crear notificacion para user 1 (simulada)
+[2025-11-20T14:35:04.348249] Crear notificacion para user 5 (simulada)
+[2025-11-20T14:35:04.348258] Crear notificacion para user 7 (simulada)
+[2025-11-20T14:35:04.348267] Crear notificacion para user 8 (simulada)
+[2025-11-20T14:35:04.365557] EXCEPCIÓN: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
