@@ -175,7 +175,7 @@ class BotAsignador:
             turno_id = turno.id if isinstance(turno, Turno) else int(turno.get("id"))
             self.log_pipeline(f"=== Procesando turno input: {turno_id}")
             # comenzamos transacción
-            with self.session.begin_nested():
+            with self.session.begin():
                 # refrescar turno
                 t = self.session.query(Turno).get(turno_id)
                 if not t:
@@ -284,9 +284,9 @@ class BotAsignador:
                 self.session.flush()  # asegurar que t esté actualizado
                 # commit happen on exit of begin_nested / outer context if commit True
 
-                if commit:
+                # if commit:
                     # commit outer transaction
-                    self.session.commit()
+                    # self.session.commit()
 
                 self.log_pipeline(f"Finalizado turno {t.id}. Usuarios asignados: {assigned}")
                 self.finalize_pipeline()
@@ -302,7 +302,8 @@ class BotAsignador:
         except Exception as e:
             # rollback any pending transaction
             try:
-                self.session.rollback()
+                # self.session.rollback()
+                pass
             except Exception:
                 pass
             self.log_pipeline(f"EXCEPCIÓN: {e}")
