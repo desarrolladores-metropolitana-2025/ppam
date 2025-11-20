@@ -1,7 +1,7 @@
 # BotAsignador.py
 # Versión Python/Flask/SQLAlchemy adaptada desde BotAsignador.php
 # - Usa modelos de modelos.py (Publicador, PuntoPredicacion, SolicitudTurno, Ausencia, Turno, Experiencia)
-# - Escribe pipeline ASCII en /tmp/bot_pipeline_{ts}.txt
+# - Escribe pipeline ASCII en /home/ppamappcaba/mysite/tmp/bot_pipeline_{ts}.txt
 # - Escribe /tmp/bot_log.json con {"pipeline_text": "..."}
 # - Expone blueprint `bot_api` con endpoints /api/bot/ejecutar, /estado, /metricas
 #
@@ -31,7 +31,7 @@ def now_ts_str():
 
 def write_pipeline_file(content: str) -> str:
     ts = now_ts_str()
-    filename = f"/tmp/bot_pipeline_{ts}.txt"
+    filename = f"/home/ppamappcaba/mysite/tmp/bot_pipeline_{ts}.txt"
     try:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(content)
@@ -46,7 +46,7 @@ def write_pipeline_file(content: str) -> str:
 
 def write_bot_log_json(payload: Dict[str, Any]) -> str:
     """Write /tmp/bot_log.json (frontend reads this). Returns path."""
-    path = "/tmp/bot_log.json"
+    path = "/home/ppamappcaba/mysite/tmp/bot_log.json"
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)

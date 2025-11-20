@@ -101,7 +101,7 @@
 let lastPipelineText = "";
 
 async function actualizarPipeline() {
-  const res = await fetch("../tmp/bot_log.json?ts=" + Date.now());
+  const res = await fetch("/tmp/bot_log.json?ts=" + Date.now());
   if (!res.ok) {
     document.getElementById("pipelineOutput").innerText = "Error al cargar el pipeline.";
     return;
@@ -145,7 +145,7 @@ function abrirPipelineEnNuevaPestaña() {
 // ------ LOG DEL BOT (JSON) ------
 async function actualizarBotLog() {
   try {
-    const res = await fetch("../tmp/bot_log.json?cache=" + Date.now());
+    const res = await fetch("/tmp/bot_log.json?cache=" + Date.now());
     if (!res.ok) throw new Error(`Error al leer bot_log.json (${res.status})`);
     const jsonText = await res.text();
 
@@ -162,7 +162,7 @@ async function actualizarBotLog() {
 }
 
 function abrirBotLogNuevaPestaña() {
-  window.open("../tmp/bot_log.json", "_blank");
+  window.open("/tmp/bot_log.json", "_blank");
 }
 
 // ------ Formateador de JSON con colores ------
