@@ -1,8 +1,15 @@
 # turnos.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template, session
 from extensiones import db
 from modelos import Turno, PuntoPredicacion, Publicador, SolicitudTurno
 from datetime import datetime, date, time
+from flask_login import (
+    LoginManager,
+    login_user,
+    logout_user,
+    login_required,
+    current_user,
+)
 
 bp_turnos = Blueprint("turnos", __name__, url_prefix="/api")
 
@@ -30,6 +37,7 @@ def turno_to_dict(t: Turno):
     }
 
 @bp_turnos.route("/turnos", methods=["GET", "POST"])
+@login_required
 def api_turnos():
     accion = request.args.get("accion") or request.form.get("accion") or (request.get_json(silent=True) or {}).get("accion")
 
@@ -37,9 +45,72 @@ def api_turnos():
     # LISTAR simple (array)
     # ---------------------
     if accion == "listar":
-        turnos = Turno.query.order_by(Turno.fecha, Turno.hora_inicio).all()
+        punto_id = request.args.get("punto", type=int)
+        fecha = request.args.get("fecha")
+
+        q = Turno.query
+
+        if punto_id:
+            q = q.filter(Turno.punto_id == punto_id)
+
+        if fecha:
+            try:
+                fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+                q = q.filter(Turno.fecha == fecha_obj)
+            except:
+                pass
+
+        turnos = q.order_by(Turno.fecha, Turno.hora_inicio).all()
         data = [turno_to_dict(t) for t in turnos]
         return jsonify(data)
+    if accion == "solicitar":
+        data = request.get_json() or {}
+        turno_id = data.get("turno_id")
+
+        if not turno_id:
+            return jsonify({"ok": False, "error": "turno_id requerido"}), 400
+
+        # Buscar turno
+        turno = Turno.query.get(turno_id)
+        if not turno:
+            return jsonify({"ok": False, "error": "Turno inexistente"}), 404
+
+        # Evitar duplicados: si ya existe solicitud del mismo usuario para ese turno
+        existe = SolicitudTurno.query.filter_by(
+            publicador_id=current_user.id,
+            punto_id=turno.punto_id,
+            hora_inicio=turno.hora_inicio,
+            hora_fin=turno.hora_fin,
+            dia=turno.dia,
+            fecha_inicio=turno.fecha
+        ).first()
+
+        if existe:
+            return jsonify({"ok": False, "error": "Ya existe tu solicitud para este turno"}), 400
+
+        try:
+            # Crear solicitud
+            sol = SolicitudTurno(
+                publicador_id=current_user.id,
+                punto_id=turno.punto_id,
+                hora_inicio=turno.hora_inicio,
+                hora_fin=turno.hora_fin,
+                dia=turno.dia,
+                fecha_inicio=turno.fecha,
+                fecha_fin=turno.fecha,
+                prioridad=1,
+                frecuencia=None
+            )
+            db.session.add(sol)
+            db.session.commit()
+            return jsonify({"ok": True, "message": "Solicitud creada", "solicitud_id": sol.id})
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.exception("Error creando solicitud")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+
 
     # ---------------------
     # LISTAR POR RANGO -> objeto agrupado por fecha (igual al PHP)
@@ -47,6 +118,8 @@ def api_turnos():
     if accion == "listar_por_rango":
         desde = request.args.get("desde")
         hasta = request.args.get("hasta")
+        punto_id = request.args.get("punto", type=int)
+
         try:
             fecha_desde = datetime.strptime(desde, "%Y-%m-%d").date() if desde else None
             fecha_hasta = datetime.strptime(hasta, "%Y-%m-%d").date() if hasta else None
@@ -54,10 +127,15 @@ def api_turnos():
             return jsonify({"error":"Formato de fecha inválido. Use YYYY-MM-DD"}), 400
 
         q = Turno.query
+
+        # Filtros
         if fecha_desde:
             q = q.filter(Turno.fecha >= fecha_desde)
         if fecha_hasta:
             q = q.filter(Turno.fecha <= fecha_hasta)
+        if punto_id:
+            q = q.filter(Turno.punto_id == punto_id)
+
         q = q.order_by(Turno.fecha, Turno.hora_inicio)
         turnos = q.all()
 
@@ -66,7 +144,6 @@ def api_turnos():
             key = date_to_iso(t.fecha)
             out.setdefault(key, []).append(turno_to_dict(t))
         return jsonify(out)
-
     # ---------------------
     # GET por id
     # ---------------------
@@ -235,3 +312,86 @@ def api_turnos():
         return jsonify(out)
 
     return jsonify({"error": "accion no reconocida"}), 400
+@bp_turnos.route('/calendario')
+@login_required
+def calendario_publico():
+    p = request.args.get('p', type=int, default=1)
+    punto = PuntoPredicacion.query.get(p)
+    nombre = punto.punto_nombre if punto else request.args.get('nomb', f'Punto {p}')
+    return render_template('calendario_ppam.html', punto_id=p, punto_name=nombre)
+
+@bp_turnos.route('/api/events')
+@login_required
+def api_events():
+    """
+    Devuelve turnos en formato JSON para FullCalendar.
+    Parámetros: punto_id, start, end (ISO dates)
+    """
+    punto_id = request.args.get('punto_id', type=int)
+    start = request.args.get('start')
+    end = request.args.get('end')
+    try:
+        start_dt = datetime.date.fromisoformat(start.split('T')[0]) if start else None
+        end_dt = datetime.date.fromisoformat(end.split('T')[0]) if end else None
+    except Exception:
+        return jsonify({"ok": False, "error": "Fechas inválidas"}), 400
+
+    q = Turno.query
+    if punto_id:
+        q = q.filter(Turno.punto_id == punto_id)
+    if start_dt:
+        q = q.filter(Turno.fecha >= start_dt)
+    if end_dt:
+        q = q.filter(Turno.fecha <= end_dt)
+    turnos = q.order_by(Turno.fecha, Turno.hora_inicio).all()
+
+    out = []
+    for t in turnos:
+        out.append({
+            "id": t.id,
+            "fecha": t.fecha.isoformat(),
+            "hora_inicio": t.hora_inicio.strftime("%H:%M") if t.hora_inicio else None,
+            "hora_fin": t.hora_fin.strftime("%H:%M") if t.hora_fin else None,
+            "punto_id": t.punto_id,
+            "punto_nombre": getattr(t.punto, "nombre", None) if hasattr(t, "punto") else None,
+            "title": getattr(t, "titulo", None) or f"Turno #{t.id}",
+            "estado": getattr(t, "estado", None)
+        })
+    return jsonify({"ok": True, "turnos": out})
+
+@bp_turnos.route('/api/solicitar', methods=['POST'])
+@login_required
+def api_solicitar_turno():
+    """
+    JSON body: { "turno_id": 123 }
+    Crea una SolicitudTurno para el current_user sobre ese turno (estado 'pendiente').
+    """
+    data = request.get_json(silent=True) or {}
+    turno_id = data.get('turno_id')
+    if not turno_id:
+        return jsonify({"ok": False, "error": "turno_id requerido"}), 400
+
+    turno = Turno.query.get(int(turno_id))
+    if not turno:
+        return jsonify({"ok": False, "error": "Turno no encontrado"}), 404
+
+    # Evitar duplicados: si ya hay solicitud del mismo user para ese turno
+    existe = SolicitudTurno.query.filter_by(turno_id=turno.id, publicador_id=current_user.id).first()
+    if existe:
+        return jsonify({"ok": False, "error": "Ya existe tu solicitud para este turno"}), 400
+
+    try:
+        s = SolicitudTurno(
+            turno_id=turno.id,
+            publicador_id=current_user.id,
+            punto_id=turno.punto_id if hasattr(turno, 'punto_id') else None,
+            estado='pendiente',
+            created_at=datetime.datetime.utcnow()
+        )
+        db.session.add(s)
+        db.session.commit()
+        return jsonify({"ok": True, "message": "Solicitud creada", "solicitud_id": s.id})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("Error creando solicitud")
+        return jsonify({"ok": False, "error": str(e)}), 500

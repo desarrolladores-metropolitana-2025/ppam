@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Calendario de turnos</title>
+
+    <!-- FULLCALENDAR GLOBAL -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.8/index.global.min.css" rel="stylesheet">
+
+    <style>
+      #calendar { max-width: 1100px; margin: 1rem auto; }
+      .fc-toolbar-title { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+
+<div class="container py-4">
+  <h2>Calendario de turnos — {{ punto_name }}</h2>
+
+  <div class="mb-3">
+    <label>Punto:</label>
+    <select id="puntoFilter" class="form-select" style="width:300px;display:inline-block">
+      <option value="{{ punto_id }}">{{ punto_name }}</option>
+    </select>
+    <button id="refreshBtn" class="btn btn-sm btn-secondary">Actualizar</button>
+  </div>
+
+  <div id="calendar"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal" tabindex="-1" id="turnoModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Turno <span id="modalTurnoId"></span></h5>
+        <button type="button" class="btn-close" onclick="hideModal()"></button>
+      </div>
+      <div class="modal-body">
+        <p><b>Fecha:</b> <span id="modalFecha"></span></p>
+        <p><b>Hora:</b> <span id="modalHora"></span></p>
+        <p><b>Punto:</b> <span id="modalPunto"></span></p>
+        <div id="modalMsg" class="alert d-none" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="solicitarBtn" class="btn btn-primary">Deseo solicitar este turno</button>
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FULLCALENDAR GLOBAL JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.8/index.global.min.js"></script>
+
+<!-- TU JS -->
+<script src="{{ url_for('static', filename='js/calendario_full.js') }}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  CalendarioFull.init({
+    punto_id: {{ punto_id }},
+    punto_name: "{{ punto_name|e }}"
+  });
+});
+</script>
+
+</body>
+</html>

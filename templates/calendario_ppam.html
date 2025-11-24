@@ -1,0 +1,112 @@
+<!-- templates/calendario_ppam.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Calendario de turnos — {{ punto_name }}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+
+  <!-- Bootstrap CSS (opcional pero recomendado) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app_turnos.css') }}">
+
+  <style>
+    /* Estilos compactos similares a tu versión original */
+    .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+    .day { min-height:90px; border-radius:8px; padding:8px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.03); cursor:pointer;}
+    .day-empty { background:transparent; box-shadow:none; cursor:default; }
+    .day.selected { outline:3px solid #0d6efd33; }
+    .day .badge-count{ font-size:12px; margin-top:6px; display:inline-block; }
+	.day-green { background: #d0f0c0; color: #2e7d32; }       /* Creado - verde pastel */
+	.day-purple { background: #e1bee7; color: #6a1b9a; }      /* Pendiente - lila suave */
+	.day-yellow { background: #fff9c4; color: #f57f17; }      /* Abierto - amarillo pastel */
+	.day-mustard { background: #ffe0b2; color: #ef6c00; }     /* Asignado - mostaza suave */
+	.day-red { background: #ffcdd2; color: #c62828; }         /* Planificado - rojo suave */
+	.day-blue { background: #bbdefb; color: #1565c0; }        /* Publicado - azul pastel */
+	.day-orange { background: #ffd8b1; color: #e65100; }      /* Completado - naranja pastel */
+	.day-gray { background: #eeeeee; color: #616161; }        /* Cancelado - gris suave */
+     .loader { color:#666; padding:8px; }
+    .turnos-list .turno-item { border-bottom:1px solid #eee; padding:8px 0; display:flex; justify-content:space-between; align-items:center;}
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <a href="{{ url_for('turnos_index') }}" class="btn btn-sm btn-outline-secondary">← Volver</a>
+      </div>
+      <h3 class="m-0">Calendario — {{ punto_name }}</h3>
+	  <h4 id="puntoName" class="text-muted"></h4>
+      <div>
+        <button id="prevM" class="btn btn-sm btn-outline-primary">◀</button>
+        <span id="monthLabel" class="mx-2 fw-semibold"></span>
+        <button id="nextM" class="btn btn-sm btn-outline-primary">▶</button>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div id="calendarRoot" class="calendar"></div>
+
+        <div class="mt-3">
+          <div class="d-flex gap-2 flex-wrap calendar-legend">
+            <div><span class="dot day-green" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Creado</div>
+            <div><span class="dot day-purple" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Pendiente</div>
+            <div><span class="dot day-yellow" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Abierto</div>
+            <div><span class="dot day-mustard" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Asignado</div>
+            <div><span class="dot day-red" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Planificado</div>
+            <div><span class="dot day-blue" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Publicado</div>
+            <div><span class="dot day-orange" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Completado</div>
+            <div><span class="dot day-gray" style="display:inline-block;width:12px;height:12px;border-radius:50%"></span> Cancelado</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="turnosContainer" class="card d-none">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div id="turnosForLabel" class="fw-semibold">Turnos</div>
+        <button id="closeTurnos" class="btn btn-sm btn-outline-secondary">Cerrar</button>
+      </div>
+      <div class="card-body">
+        <div id="turnosList" class="turnos-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal simple Bootstrap 5 -->
+  <div class="modal fade" id="turnoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Turno <span id="modalTurnoId"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p><b>Fecha:</b> <span id="modalFecha"></span></p>
+          <p><b>Hora:</b> <span id="modalHora"></span></p>
+          <p><b>Punto:</b> <span id="modalPunto"></span></p>
+          <div id="modalMsg" class="alert d-none" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="solicitarBtn" class="btn btn-primary">Deseo solicitar este turno</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS (for modal) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Nuestro JS -->
+  <script src="{{ url_for('static', filename='js/app_turnos_flask.js') }}"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      AppTurnos.init({ punto_id: {{ punto_id }}, punto_name: "{{ punto_name|e }}" });
+    });
+  </script>
+</body>
+</html>
