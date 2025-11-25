@@ -81,21 +81,22 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
     {% for punto in puntos %}
     <div class="card punto-card" data-punto="{{ punto.id }}" style="{% if not loop.first %}display:none{% endif %}">
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-            <h2 style="margin:0;">{{ punto.punto_nombre }}</h2>
-			<span>  ⛔ : inactivo / <span style="color:#28a745; font-weight:bold;">⭐</span> : Principiante</span>
-            <!-- checkbox maestro del punto (toda la semana) -->
+            <h4 style="margin:0; color:#2846cc;">{{ punto.punto_nombre }}</h4>
+			<span>  (turnos ant.) / ⛔ : inactivo / <span style="color:#28a745; font-weight:bold;">⭐</span> : Principiante</span>
+            <div class="planificacion-stats" style="margin-bottom:10px; font-size:14px; color: blue;">
+			 <strong>Estadísticas:</strong>
+			 <span class="stat-publicos">Publicos: <em>—</em></span>
+			 <span style="margin-left:8px;" class="stat-borradores">Borradores: <em>—</em></span>
+			 <span style="margin-left:8px;" class="stat-dias">Días completos: <em>—</em></span>
+		    </div>
+			<!-- checkbox maestro del punto (toda la semana) -->
             <label style="margin-left:auto; display:flex; align-items:center; gap:6px; font-weight:600;">
                 <input type="checkbox" class="check-semana check-master" data-punto="{{ punto.id }}" title="Seleccionar todos los turnos de este punto (toda la semana)">
                 <span style="font-size:13px; color:#333;">Seleccionar semana</span>
             </label>
         </div>
         <!-- Dentro de cada .punto-card (por ejemplo arriba del form o debajo): -->
-		<div class="planificacion-stats" style="margin-bottom:10px; font-size:14px;">
-			<strong>Estadísticas:</strong>
-			<span class="stat-publicos">Publicos: <em>—</em></span>
-			<span style="margin-left:8px;" class="stat-borradores">Borradores: <em>—</em></span>
-			<span style="margin-left:8px;" class="stat-dias">Días completos: <em>—</em></span>
-		</div>
+		
         <form id="form_planificacion_{{ punto.id }}" action="{{ url_for('planificacion_actualizar') }}" method="POST">
             <input type="hidden" name="punto_id" value="{{ punto.id }}">
             <input type="hidden" name="week_start" value="{{ week_start.strftime('%Y-%m-%d') }}">
