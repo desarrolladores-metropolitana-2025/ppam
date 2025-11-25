@@ -1316,6 +1316,10 @@ def planificacion_index():
 
     puntos = PuntoPredicacion.query.all()
     publicadores = Publicador.query.all()
+    pub_map = {p.id: {"nombre": f"{p.nombre} {p.apellido}"} for p in publicadores}
+
+    # mapa turno_count: publicador_id -> cantidad de asignaciones esta semana
+    turno_count = {p.id: 0 for p in publicadores}
     # mapa id -> "Nombre Apellido"
     pub_map = {p.id: f"{p.nombre} {p.apellido}".strip() for p in publicadores}
 
@@ -1326,6 +1330,12 @@ def planificacion_index():
 
     # Traer todos los turnos de la semana para optimizar
     all_turnos = Turno.query.filter(Turno.fecha >= week_start, Turno.fecha <= week_end).all()
+    for t in all_turnos:   # ya lo tenés
+        for pid in [t.capitan_id, t.publicador1_id, t.publicador2_id, t.publicador3_id, t.publicador4_id]:
+            if pid:
+                turno_count[pid] += 1
+    # hoy
+    hoy = date.today()            
     # Agrupar por punto y por dia
     for punto in puntos:
         turnos_by_punto[punto.id] = {}
@@ -1416,12 +1426,19 @@ def planificacion_index():
 
         if fecha_ultima:
             semanas = (week_start - fecha_ultima).days // 7
+        # días sin participar
+        if p.ultima_participacion:
+            dias_inactivo = (hoy - p.ultima_participacion).days
+        else:
+            dias_inactivo = 9999  # nunca participó
 
         pub_info[p.id] = {
             "nombre": f"{p.nombre} {p.apellido}",
-            "turnos_semana": cant,
-            "principiante": p.principiante,
-            "semanas_sin_participar": semanas
+            "turnos_semana": turno_count.get(p.id, 0),
+            "principiante": bool(getattr(p, "principiante", False)),
+            "semanas_sin_participar": semanas,
+            "inactivo": dias_inactivo > 60,
+            "dias_inactivo": dias_inactivo
         }
 
 
@@ -1430,6 +1447,7 @@ def planificacion_index():
         puntos=puntos,
         publicadores=publicadores,
         turnos=turnos_by_punto,
+        pub_map=pub_map,
         pub_info=pub_info,   
         week_start=week_start,
         week_end=week_end,

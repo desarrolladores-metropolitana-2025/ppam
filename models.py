@@ -19,6 +19,8 @@ class Publicador(UserMixin, db.Model):
     rol = db.Column(db.String(50))  # ej: publicador, precursor, anciano
     usuario = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
+    principiante = db.Column(db.Boolean, default=False)
+    ultima_participacion = db.Column(db.Date, nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method="pbkdf2:sha256")

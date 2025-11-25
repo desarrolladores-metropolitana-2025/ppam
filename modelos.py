@@ -19,6 +19,7 @@ class Publicador(db.Model):
     rol = db.Column(db.String(50))
     password_hash = db.Column(db.String(200))
     principiante = db.Column(db.Boolean, default=False)
+    ultima_participacion = db.Column(db.Date, nullable=True)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)

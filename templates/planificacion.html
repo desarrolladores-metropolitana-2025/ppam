@@ -82,6 +82,7 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
     <div class="card punto-card" data-punto="{{ punto.id }}" style="{% if not loop.first %}display:none{% endif %}">
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
             <h2 style="margin:0;">{{ punto.punto_nombre }}</h2>
+			<span>  ⛔ : inactivo / <span style="color:#28a745; font-weight:bold;">⭐</span> : Principiante</span>
             <!-- checkbox maestro del punto (toda la semana) -->
             <label style="margin-left:auto; display:flex; align-items:center; gap:6px; font-weight:600;">
                 <input type="checkbox" class="check-semana check-master" data-punto="{{ punto.id }}" title="Seleccionar todos los turnos de este punto (toda la semana)">
@@ -142,90 +143,96 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
                         </td>
                         <td>{{ t['hora_inicio'].strftime('%H:%M') if t['hora_inicio'] else '-' }}</td>
                         <td>{{ t['hora_fin'].strftime('%H:%M') if t['hora_fin'] else '-' }}</td>
-                        <td>{{ t['capitan_nombre'] or '-' }}</td>
-                       <td>
-    {% set pid = t['publicador1_id'] %}
+                        <td>
+    {% set pid = t.capitan_id %}
     {% if pid %}
-        {{ pub_info[pid].nombre }}
-
-        {% if pub_info[pid].turnos_semana > 0 %}
-            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
-        {% endif %}
+        {{ pub_map[pid] }}
+        <span style="color:#007bff;">({{ pub_info[pid].turnos_semana }} t)</span>
 
         {% if pub_info[pid].principiante %}
-            <span class="tag-principiante">Principiante</span>
+            <span style="color:#28a745; font-weight:bold;">⭐</span>
         {% endif %}
 
-        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
-            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% if pub_info[pid].inactivo %}
+            <span style="color:#c0392b; font-weight:bold;" title="Hace {{ pub_info[pid].dias_inactivo }} días que no participa.">⛔</span>
         {% endif %}
     {% else %}
         -
     {% endif %}
 </td>
+
+                       <td>
+    {% set pid = t['publicador1_id'] %}
+    {% if pid %}
+        {{ pub_map[pid] }}
+        <span style="color:#007bff;">({{ pub_info[pid].turnos_semana }} t)</span>
+
+        {% if pub_info[pid].principiante %}
+            <span style="color:#28a745; font-weight:bold;">⭐</span>
+        {% endif %}
+
+        {% if pub_info[pid].inactivo %}
+            <span style="color:#c0392b; font-weight:bold;" title="Hace {{ pub_info[pid].dias_inactivo }} días que no participa.">⛔</span>
+        {% endif %}
+    {% else %}
+        -
+    {% endif %}
+</td>
+
 
                         <td>
     {% set pid = t['publicador2_id'] %}
     {% if pid %}
-        {{ pub_info[pid].nombre }}
-
-        {% if pub_info[pid].turnos_semana > 0 %}
-            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
-        {% endif %}
+        {{ pub_map[pid] }}
+        <span style="color:#007bff;">({{ pub_info[pid].turnos_semana }} t)</span>
 
         {% if pub_info[pid].principiante %}
-            <span class="tag-principiante">Principiante</span>
+            <span style="color:#28a745; font-weight:bold;">⭐</span>
         {% endif %}
 
-        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
-            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% if pub_info[pid].inactivo %}
+            <span style="color:#c0392b; font-weight:bold;" title="Hace {{ pub_info[pid].dias_inactivo }} días que no participa.">⛔</span>
         {% endif %}
     {% else %}
         -
     {% endif %}
 </td>
 
-                        <td>
+                         <td>
     {% set pid = t['publicador3_id'] %}
     {% if pid %}
-        {{ pub_info[pid].nombre }}
-
-        {% if pub_info[pid].turnos_semana > 0 %}
-            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
-        {% endif %}
+        {{ pub_map[pid] }}
+        <span style="color:#007bff;">({{ pub_info[pid].turnos_semana }} t)</span>
 
         {% if pub_info[pid].principiante %}
-            <span class="tag-principiante">Principiante</span>
+            <span style="color:#28a745; font-weight:bold;">⭐</span>
         {% endif %}
 
-        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
-            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% if pub_info[pid].inactivo %}
+            <span style="color:#c0392b; font-weight:bold;" title="Hace {{ pub_info[pid].dias_inactivo }} días que no participa.">⛔</span>
         {% endif %}
     {% else %}
         -
     {% endif %}
 </td>
 
-                        <td>
+                         <td>
     {% set pid = t['publicador4_id'] %}
     {% if pid %}
-        {{ pub_info[pid].nombre }}
-
-        {% if pub_info[pid].turnos_semana > 0 %}
-            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
-        {% endif %}
+        {{ pub_map[pid] }}
+        <span style="color:#007bff;">({{ pub_info[pid].turnos_semana }} t)</span>
 
         {% if pub_info[pid].principiante %}
-            <span class="tag-principiante">Principiante</span>
+            <span style="color:#28a745; font-weight:bold;">⭐</span>
         {% endif %}
 
-        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
-            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% if pub_info[pid].inactivo %}
+            <span style="color:#c0392b; font-weight:bold;" title="Hace {{ pub_info[pid].dias_inactivo }} días que no participa.">⛔</span>
         {% endif %}
     {% else %}
         -
     {% endif %}
-</td>
+		</td>
 
                     </tr>
                     {% endfor %}
