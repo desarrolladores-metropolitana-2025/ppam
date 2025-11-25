@@ -16,6 +16,23 @@ def parse_time(s):
         except:
             return None
 
+@bp_post.route("/publicador")
+def api_publicador():
+    pub_id = request.args.get("id", type=int)
+    if not pub_id:
+        return jsonify({"error": "id requerido"}), 400
+
+    p = Publicador.query.get(pub_id)
+    if not p:
+        return jsonify({"error": "no encontrado"}), 404
+
+    return jsonify({
+        "id": p.id,
+        "nombre": p.nombre,
+        "apellido": p.apellido
+    })
+
+
 @bp_post.route("/postulantes", methods=["GET","POST"])
 def api_postulantes():
     accion = request.args.get("accion") or (request.get_json(silent=True) or {}).get("accion")
@@ -210,51 +227,41 @@ def api_postulantes():
             })
 
         return jsonify(out)
-    # ================================================
-    # NUEVO: listar disponibles en modo BULK
-    # ================================================
+    # --------------------------------------------------------------------
+#   ACCIÓN: disponibles_bulk  (ULTRA OPTIMIZADO)
+# --------------------------------------------------------------------
     if accion == "disponibles_bulk":
         """
-        Recibe por POST un JSON así:
+        POST:
         {
             "punto_id": 3,
             "turnos": [
-                {"id": 91, "fecha": "2025-11-17", "hora_inicio": "08:00", "hora_fin": "09:00"},
-                {"id": 92, "fecha": "2025-11-17", "hora_inicio": "09:00", "hora_fin": "10:00"}
+                {"id":91,"fecha":"2025-11-17","hora_inicio":"08:00","hora_fin":"09:00"},
+                {"id":92,"fecha":"2025-11-17","hora_inicio":"09:00","hora_fin":"10:00"}
             ]
         }
 
-        Devuelve:
-        {
-            "91": [ {pub}, {pub} ],
-            "92": [ {pub} ]
-        }
+        Respuesta:
+        { "91":[{pub},{pub}], "92":[...] }
         """
+
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "JSON inválido"}), 400
     
         punto_id = data.get("punto_id")
-        turnos = data.get("turnos", [])
+        turnos_in = data.get("turnos", [])
 
-        respuesta = {}
-
-        # obtenemos todos los publicadores una sola vez
-        todos = Publicador.query.all()
-
-        for t in turnos:
-            turno_id = str(t.get("id"))
-            fecha = t.get("fecha")
-            hi = t.get("hora_inicio")
-            hf = t.get("hora_fin")
-    
-            # parse fecha
+        # -----------------------------------------------
+        # Parseamos turnos + convertimos hora/fecha
+        # -----------------------------------------------
+        turnos = []
+        for t in turnos_in:
             try:
-                fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+                fecha_obj = datetime.strptime(t["fecha"], "%Y-%m-%d").date()
             except:
                 fecha_obj = None
-
-            # parse hora segura
+    
             def parse_hora(x):
                 if not x:
                     return None
@@ -265,84 +272,120 @@ def api_postulantes():
                         pass
                 return None
 
-            hi_t = parse_hora(hi)
-            hf_t = parse_hora(hf)
+            hi = parse_hora(t.get("hora_inicio"))
+            hf = parse_hora(t.get("hora_fin"))
 
-            disponibles = []
+            turnos.append({
+                "id": str(t["id"]),
+                "fecha": fecha_obj,
+                "hi": hi,
+                "hf": hf
+            })
 
-            for p in todos:
+        # -----------------------------------------------
+        # 1) CARGAR TODOS LOS PUBLICADORES UNA SOLA VEZ
+        # -----------------------------------------------
+        pubs = Publicador.query.all()
+
+        # -----------------------------------------------
+        # 2) CARGAR AUSENCIAS Y TURNOS EXISTENTES EN BLOQUE
+        # -----------------------------------------------
+        pub_ids = [p.id for p in pubs]
+        fechas = [t["fecha"] for t in turnos if t["fecha"]]
+
+        ausencias = {}
+        for a in Ausencia.query.filter(Ausencia.publicador_id.in_(pub_ids)).all():
+            ausencias.setdefault(a.publicador_id, []).append(a)
+    
+        # todos los turnos del mismo día para detectar solapes
+        turnos_existentes = {}
+        if fechas:
+            t_exist = Turno.query.filter(Turno.fecha.in_(fechas)).all()
+            for tx in t_exist:
+                turnos_existentes.setdefault(tx.fecha, []).append(tx)
+
+        # solicitudes por publicador+punto
+        solicitudes = {}
+        if punto_id:
+            sols = SolicitudTurno.query.filter(
+                SolicitudTurno.punto_id == punto_id
+            ).all()
+            for s in sols:
+                solicitudes.setdefault(s.publicador_id, []).append(s)
+
+        # -----------------------------------------------
+        # FUNCIÓN AUXILIAR - chequeo rápido de solape
+        # -----------------------------------------------
+        def t2m(t):
+            return t.hour * 60 + t.minute if t else None
+
+        # -----------------------------------------------
+        # 3) EVALUAR DISPONIBILIDAD
+        # -----------------------------------------------
+        respuesta = {t["id"]: [] for t in turnos}
+
+        for t in turnos:
+            fecha = t["fecha"]
+            hi = t["hi"]
+            hf = t["hf"]
+
+            for p in pubs:
                 ok = True
 
                 # AUSENCIAS
-                if fecha_obj:
-                    aus = Ausencia.query.filter(Ausencia.publicador_id == p.id).all()
-                    for a in aus:
-                        if a.fecha_inicio <= fecha_obj <= a.fecha_fin:
+                if fecha:
+                    for a in ausencias.get(p.id, []):
+                        if a.fecha_inicio <= fecha <= a.fecha_fin:
                             ok = False
                             break
                     if not ok:
                         continue
 
                 # SOLAPES
-                if fecha_obj and hi_t and hf_t:
-                    sol = Turno.query.filter(
-                        Turno.fecha == fecha_obj,
-                        (
-                            (Turno.publicador1_id == p.id) |
-                            (Turno.publicador2_id == p.id) |
-                            (Turno.publicador3_id == p.id) |
-                            (Turno.publicador4_id == p.id) |
-                            (Turno.capitan_id == p.id)
-                        )
-                    ).all()
+                if fecha and hi and hf:
+                    q_hi = t2m(hi)
+                    q_hf = t2m(hf)
 
-                    def t2m(x):
-                        return x.hour * 60 + x.minute if x else 0
+                    for tx in turnos_existentes.get(fecha, []):
+                        if p.id not in (
+                            tx.publicador1_id, tx.publicador2_id,
+                            tx.publicador3_id, tx.publicador4_id,
+                            tx.capitan_id
+                        ):
+                            continue
 
-                    q_hi = t2m(hi_t)
-                    q_hf = t2m(hf_t)
-
-                    conflict = False
-                    for s in sol:
-                        s_hi = t2m(s.hora_inicio)
-                        s_hf = t2m(s.hora_fin)
+                        s_hi = t2m(tx.hora_inicio)
+                        s_hf = t2m(tx.hora_fin)
                         if max(s_hi, q_hi) < min(s_hf, q_hf):
-                            conflict = True
+                            ok = False
                             break
-                    if conflict:
-                        ok = False
+                    if not ok:
                         continue
 
                 # SOLICITUDES
-                if punto_id and fecha_obj and hi_t and hf_t:
-                    solicitudes = SolicitudTurno.query.filter(
-                        SolicitudTurno.publicador_id == p.id,
-                        SolicitudTurno.punto_id == punto_id
-                    ).all()
+                if fecha and hi and hf:
                     match = False
-                    for sol in solicitudes:
-                        if sol.fecha_inicio and fecha_obj < sol.fecha_inicio:
+                    for s in solicitudes.get(p.id, []):
+                        if s.fecha_inicio and fecha < s.fecha_inicio:
                             continue
-                        if sol.fecha_fin and fecha_obj > sol.fecha_fin:
+                        if s.fecha_fin and fecha > s.fecha_fin:
                             continue
-                        if sol.hora_inicio and sol.hora_fin:
-                            if sol.hora_inicio <= hi_t and sol.hora_fin >= hf_t:
-                                match = True
-                                break
+                        if s.hora_inicio <= hi and s.hora_fin >= hf:
+                            match = True
+                            break
                     if not match:
                         ok = False
                         continue
 
-                # OK
-                disponibles.append({
+                # APROBADO
+                respuesta[t["id"]].append({
                     "id": p.id,
                     "nombre": p.nombre,
                     "apellido": p.apellido
                 })
 
-            respuesta[turno_id] = disponibles
-
         return jsonify(respuesta)
+
 
     # ----------------------------------------------------------------
     # validar_disponibilidad?usuario_id=...&fecha=YYYY-MM-DD&hora_inicio=HH:MM&hora_fin=HH:MM&punto_id=...

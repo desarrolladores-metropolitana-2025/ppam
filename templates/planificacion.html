@@ -35,7 +35,9 @@ tr:nth-child(even) td { background:transparent; } /* keep stripes neutral, use r
 /* Row colors: cada fila según t.is_public */
 tr.turno-publico td { background-color: #d4edda !important; } /* verde claro */
 tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
-
+.tag-turnos { color: #555; font-size: 11px; }
+.tag-principiante { background: #ffdd57; padding: 2px 4px; font-size: 11px; border-radius: 3px; }
+.tag-alerta { color: #b22222; font-weight: bold; font-size: 11px; }
 .check-master { transform:scale(1.05); cursor:pointer; }
 @media (max-width:768px){ .tabs{flex-direction:column;} table, th, td{font-size:12px;} }
 </style>
@@ -86,7 +88,13 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
                 <span style="font-size:13px; color:#333;">Seleccionar semana</span>
             </label>
         </div>
-
+        <!-- Dentro de cada .punto-card (por ejemplo arriba del form o debajo): -->
+		<div class="planificacion-stats" style="margin-bottom:10px; font-size:14px;">
+			<strong>Estadísticas:</strong>
+			<span class="stat-publicos">Publicos: <em>—</em></span>
+			<span style="margin-left:8px;" class="stat-borradores">Borradores: <em>—</em></span>
+			<span style="margin-left:8px;" class="stat-dias">Días completos: <em>—</em></span>
+		</div>
         <form id="form_planificacion_{{ punto.id }}" action="{{ url_for('planificacion_actualizar') }}" method="POST">
             <input type="hidden" name="punto_id" value="{{ punto.id }}">
             <input type="hidden" name="week_start" value="{{ week_start.strftime('%Y-%m-%d') }}">
@@ -97,135 +105,146 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
             </div>
 
             {% for dia, turnos_dia in turnos[punto.id].items() %}
-            <div class="dia-section">
-                <div class="dia-header" data-dia="{{ dia }}">
-                    <span class="toggle-arrow">▼</span>
-                    <span class="fecha">{{ dia.capitalize() }} – {{ turnos_dia[0]['fecha'].strftime('%d-%m-%Y') }}</span>
-                    <!-- checkbox maestro del día: colocado pegado a la fecha -->
-                    <input type="checkbox" class="check-dia check-master" data-punto="{{ punto.id }}" data-dia="{{ dia }}" title="Seleccionar todos los turnos del día" onclick="event.stopPropagation()">
-                </div>
+<div class="dia-section">
+    <div class="dia-header" data-dia="{{ dia }}">
+        <span class="toggle-arrow">▼</span>
+        <span class="fecha">
+            {{ dia.capitalize() }} – 
+            {% if turnos_dia %}
+                {{ turnos_dia[0]['fecha'].strftime('%d-%m-%Y') }}
+            {% else %}
+                Sin turnos
+            {% endif %}
+        </span>
+        <input type="checkbox" class="check-dia check-master" data-punto="{{ punto.id }}" data-dia="{{ dia }}" title="Seleccionar todos los turnos del día" onclick="event.stopPropagation()">
+    </div>
 
-                <div class="dia-content">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width:40px;"></th>
-                                <th>Hora Inicio</th>
-                                <th>Hora Fin</th>
-                                <th>Capitán</th>
-                                <th>Publicador 1</th>
-                                <th>Publicador 2</th>
-                                <th>Publicador 3</th>
-                                <th>Publicador 4</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for t in turnos_dia %}
-                            <tr class="turno-{{ 'publico' if t.is_public else 'borrador' }}">
-                                <td style="text-align:center;">
-                                    <input type="checkbox" class="turno-checkbox" data-punto="{{ punto.id }}" data-dia="{{ dia }}" name="turno_ids" value="{{ t['id'] }}">
-                                </td>
-                                <td>{{ t['hora_inicio'].strftime('%H:%M') if t['hora_inicio'] else '-' }}</td>
-                                <td>{{ t['hora_fin'].strftime('%H:%M') if t['hora_fin'] else '-' }}</td>
-                                <td>{{ t['capitan_nombre'] or '-' }}</td>
-                                <td>{{ t['publicador1_nombre'] or '-' }}</td>
-                                <td>{{ t['publicador2_nombre'] or '-' }}</td>
-                                <td>{{ t['publicador3_nombre'] or '-' }}</td>
-                                <td>{{ t['publicador4_nombre'] or '-' }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {% endfor %}
+    <div class="dia-content">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:40px;"></th>
+                    <th>Hora Inicio</th>
+                    <th>Hora Fin</th>
+                    <th>Capitán</th>
+                    <th>Publicador 1</th>
+                    <th>Publicador 2</th>
+                    <th>Publicador 3</th>
+                    <th>Publicador 4</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if turnos_dia %}
+                    {% for t in turnos_dia %}
+                    <tr class="turno-{{ 'publico' if t.is_public else 'borrador' }}">
+                        <td style="text-align:center;">
+                            <input type="checkbox" class="turno-checkbox" data-punto="{{ punto.id }}" data-dia="{{ dia }}" name="turno_ids" value="{{ t['id'] }}">
+                        </td>
+                        <td>{{ t['hora_inicio'].strftime('%H:%M') if t['hora_inicio'] else '-' }}</td>
+                        <td>{{ t['hora_fin'].strftime('%H:%M') if t['hora_fin'] else '-' }}</td>
+                        <td>{{ t['capitan_nombre'] or '-' }}</td>
+                       <td>
+    {% set pid = t['publicador1_id'] %}
+    {% if pid %}
+        {{ pub_info[pid].nombre }}
+
+        {% if pub_info[pid].turnos_semana > 0 %}
+            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
+        {% endif %}
+
+        {% if pub_info[pid].principiante %}
+            <span class="tag-principiante">Principiante</span>
+        {% endif %}
+
+        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
+            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% endif %}
+    {% else %}
+        -
+    {% endif %}
+</td>
+
+                        <td>
+    {% set pid = t['publicador2_id'] %}
+    {% if pid %}
+        {{ pub_info[pid].nombre }}
+
+        {% if pub_info[pid].turnos_semana > 0 %}
+            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
+        {% endif %}
+
+        {% if pub_info[pid].principiante %}
+            <span class="tag-principiante">Principiante</span>
+        {% endif %}
+
+        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
+            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% endif %}
+    {% else %}
+        -
+    {% endif %}
+</td>
+
+                        <td>
+    {% set pid = t['publicador3_id'] %}
+    {% if pid %}
+        {{ pub_info[pid].nombre }}
+
+        {% if pub_info[pid].turnos_semana > 0 %}
+            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
+        {% endif %}
+
+        {% if pub_info[pid].principiante %}
+            <span class="tag-principiante">Principiante</span>
+        {% endif %}
+
+        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
+            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% endif %}
+    {% else %}
+        -
+    {% endif %}
+</td>
+
+                        <td>
+    {% set pid = t['publicador4_id'] %}
+    {% if pid %}
+        {{ pub_info[pid].nombre }}
+
+        {% if pub_info[pid].turnos_semana > 0 %}
+            <span class="tag-turnos">({{ pub_info[pid].turnos_semana }} turno{{ 's' if pub_info[pid].turnos_semana != 1 else '' }})</span>
+        {% endif %}
+
+        {% if pub_info[pid].principiante %}
+            <span class="tag-principiante">Principiante</span>
+        {% endif %}
+
+        {% if pub_info[pid].semanas_sin_participar is not none and pub_info[pid].semanas_sin_participar >= 4 %}
+            <span class="tag-alerta">⚠ {{ pub_info[pid].semanas_sin_participar }} semanas sin participar</span>
+        {% endif %}
+    {% else %}
+        -
+    {% endif %}
+</td>
+
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="8" style="text-align:center; font-style:italic;">No hay turnos programados.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
         </form>
+		
+
     </div>
     {% endfor %}
 </div>
-
-<script>
-/* Tabs y toggle dia */
-const cards = document.querySelectorAll('.punto-card');
-const tabs = document.querySelectorAll('.tab');
-function showTab(index){
-    cards.forEach((c,i)=>c.style.display=i===index?'block':'none');
-    tabs.forEach((t,i)=>t.classList.toggle('active', i===index));
-}
-document.querySelectorAll('.dia-header').forEach(h=>{
-    h.addEventListener('click', function(){
-        const content = this.nextElementSibling;
-        content.style.display = (content.style.display === 'none') ? 'block' : 'none';
-        const arrow = this.querySelector('.toggle-arrow');
-        arrow.textContent = content.style.display === 'none' ? '►' : '▼';
-    });
-});
-
-/* Toggle por día */
-document.querySelectorAll('.check-dia').forEach(cb=>{
-    cb.addEventListener('change', function(e){
-        const puntoId = this.dataset.punto;
-        const dia = this.dataset.dia;
-        const card = document.querySelector(`.punto-card[data-punto='${puntoId}']`);
-        const checkboxes = card.querySelectorAll(`.turno-checkbox[data-dia='${dia}']`);
-        checkboxes.forEach(ch => ch.checked = this.checked);
-        syncPuntoMasterState(puntoId);
-    });
-});
-
-/* Toggle por semana (punto) */
-document.querySelectorAll('.check-semana').forEach(cb=>{
-    cb.addEventListener('change', function(){
-        const puntoId = this.dataset.punto;
-        const card = document.querySelector(`.punto-card[data-punto='${puntoId}']`);
-        const allTurnos = card.querySelectorAll('.turno-checkbox');
-        allTurnos.forEach(ch => ch.checked = this.checked);
-        // sincronizar check-dia
-        card.querySelectorAll('.check-dia').forEach(d => d.checked = this.checked);
-    });
-});
-
-/* Si cambia un checkbox individual, actualizar masters del día y de la semana */
-document.querySelectorAll('.turno-checkbox').forEach(cb=>{
-    cb.addEventListener('change', function(){
-        const puntoId = this.dataset.punto;
-        const dia = this.dataset.dia;
-        // actualizar checkbox de dia
-        const card = document.querySelector(`.punto-card[data-punto='${puntoId}']`);
-        const dayChecks = card.querySelectorAll(`.turno-checkbox[data-dia='${dia}']`);
-        const dayMaster = card.querySelector(`.check-dia[data-dia='${dia}']`);
-        if (dayMaster) {
-            dayMaster.checked = Array.from(dayChecks).every(c=>c.checked);
-        }
-        // actualizar checkbox de semana
-        syncPuntoMasterState(puntoId);
-    });
-});
-
-function syncPuntoMasterState(puntoId){
-    const card = document.querySelector(`.punto-card[data-punto='${puntoId}']`);
-    if (!card) return;
-    const allTurnos = card.querySelectorAll('.turno-checkbox');
-    const semanaMaster = card.querySelector(`.check-semana[data-punto='${puntoId}']`);
-    if (semanaMaster) {
-        semanaMaster.checked = allTurnos.length > 0 && Array.from(allTurnos).every(c=>c.checked);
-    }
-    // también sincronizar cada day master
-    card.querySelectorAll('.check-dia').forEach(d => {
-        const dia = d.dataset.dia;
-        const dayChecks = card.querySelectorAll(`.turno-checkbox[data-dia='${dia}']`);
-        d.checked = dayChecks.length > 0 && Array.from(dayChecks).every(c=>c.checked);
-    });
-}
-
-/* inicializar estado de masters según checkboxes actuales (al cargar) */
-document.addEventListener('DOMContentLoaded', function(){
-    document.querySelectorAll('.punto-card').forEach(card=>{
-        const puntoId = card.dataset.punto;
-        syncPuntoMasterState(puntoId);
-    });
-});
-</script>
-
+<script src="{{ url_for('static', filename='js/planificacion.js') }}"></script>
 </body>
 </html>

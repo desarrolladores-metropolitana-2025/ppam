@@ -27,6 +27,8 @@ from sqlalchemy import func
 from turnos import bp_turnos
 from postulantes import bp_post
 from BotAsignador import bot_api, BotAsignador
+from planificacion import planificacion_bp
+
 # -------------------------------------------
 # Singletons de extensiones
 # -------------------------------------------
@@ -48,6 +50,7 @@ app = Flask(__name__)
 app.register_blueprint(bp_turnos)
 app.register_blueprint(bp_post)
 app.register_blueprint(bot_api)
+app.register_blueprint(planificacion_bp)
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)
@@ -1364,12 +1367,70 @@ def planificacion_index():
     next_week = week_start + timedelta(days=7)
     prev_week_url = url_for("planificacion_index", week_start=prev_week.strftime("%Y-%m-%d"))
     next_week_url = url_for("planificacion_index", week_start=next_week.strftime("%Y-%m-%d"))
+    
+    
+    turnos_semana = Turno.query.filter(
+    Turno.fecha >= week_start,
+    Turno.fecha <= week_end
+    ).all()
+
+    turnos_por_publicador = {}
+
+    for t in turnos_semana:
+        for pid in [
+            t.publicador1_id,
+            t.publicador2_id,
+            t.publicador3_id,
+            t.publicador4_id,
+            t.capitan_id,
+        ]:
+            if pid:
+                turnos_por_publicador.setdefault(pid, 0)
+                turnos_por_publicador[pid] += 1
+        
+        
+    ultimos_turnos = db.session.query(
+        Turno.publicador1_id.label("pid"),
+        Turno.fecha
+    ).filter(Turno.publicador1_id != None)
+
+    # repetir para publicador2/3/4/capitan si querés exacto
+
+    # o alternativa rápida:
+    ultima_participacion = {}
+    for t in Turno.query.order_by(Turno.fecha.desc()).all():
+        for pid in [
+            t.publicador1_id, t.publicador2_id,
+            t.publicador3_id, t.publicador4_id,
+            t.capitan_id
+        ]:
+            if pid and pid not in ultima_participacion:
+                ultima_participacion[pid] = t.fecha
+
+
+    pub_info = {}
+    for p in publicadores:
+        cant = turnos_por_publicador.get(p.id, 0)
+        fecha_ultima = ultima_participacion.get(p.id)
+        semanas = None
+
+        if fecha_ultima:
+            semanas = (week_start - fecha_ultima).days // 7
+
+        pub_info[p.id] = {
+            "nombre": f"{p.nombre} {p.apellido}",
+            "turnos_semana": cant,
+            "principiante": p.principiante,
+            "semanas_sin_participar": semanas
+        }
+
 
     return render_template(
         "planificacion.html",
         puntos=puntos,
         publicadores=publicadores,
         turnos=turnos_by_punto,
+        pub_info=pub_info,   
         week_start=week_start,
         week_end=week_end,
         prev_week=prev_week,
