@@ -114,25 +114,35 @@ select { padding:3px; border-radius:4px; border:1px solid #ccc; font-size:13px; 
                                 <td>{{ t['hora_inicio'].strftime('%H:%M') }}</td>
                                 <td>{{ t['hora_fin'].strftime('%H:%M') }}</td>
                                 <td>
-                                    <select name="capitan_{{ t['id'] }}">
-                                        <option value="">-</option>
-                                        {% for pub in publicadores %}
-                                        <option value="{{ pub.id }}" {% if t.capitan_id == pub.id %}selected{% endif %}>
-                                            {{ pub.nombre }} {{ pub.apellido }}
-                                        </option>
-                                        {% endfor %}
-                                    </select>
+                                    <select name="capitan_{{ t['id'] }}" class="available-select"
+											data-turno-id="{{ t['id'] }}"
+											data-fecha="{{ t['fecha'].strftime('%Y-%m-%d') }}"
+											data-hora-inicio="{{ t['hora_inicio'].strftime('%H:%M') }}"
+											data-hora-fin="{{ t['hora_fin'].strftime('%H:%M') }}"
+											data-punto="{{ punto.id }}">
+											<option value="">-</option>
+											{% if t.capitan_id %}
+											<option value="{{ t.capitan_id }}" selected>{{ t.capitan_nombre }}</option>
+											{% endif %}
+									</select>
+
+
                                 </td>
                                 {% for i in range(1,5) %}
                                 <td>
-                                    <select name="publicador{{ i }}_{{ t['id'] }}">
-                                        <option value="">-</option>
-                                        {% for pub in publicadores %}
-                                        <option value="{{ pub.id }}" {% if t['publicador' ~ i ~ '_id'] == pub.id %}selected{% endif %}>
-                                            {{ pub.nombre }} {{ pub.apellido }}
-                                        </option>
-                                        {% endfor %}
-                                    </select>
+                                    <select name="publicador{{ i }}_{{ t['id'] }}" class="available-select"
+											data-turno-id="{{ t['id'] }}"
+											data-fecha="{{ t['fecha'].strftime('%Y-%m-%d') }}"
+											data-hora-inicio="{{ t['hora_inicio'].strftime('%H:%M') }}"
+											data-hora-fin="{{ t['hora_fin'].strftime('%H:%M') }}"
+											data-punto="{{ punto.id }}">
+											<option value="">-</option>
+											{% if t['publicador' ~ i ~ '_id'] %}
+											<option value="{{ t['publicador' ~ i ~ '_id'] }}" selected>{{ t['publicador' ~ i ~ '_nombre'] }}</option>
+											{% endif %}
+									</select>
+
+
                                 </td>
                                 {% endfor %}
                             </tr>
@@ -146,7 +156,8 @@ select { padding:3px; border-radius:4px; border:1px solid #ccc; font-size:13px; 
     </div>
     {% endfor %}
 </div>
-
+<!-- JS Disponibilidad -->
+<script src="{{ url_for('static', filename='js/postulantes_disponibles.js') }}"></script>
 <script>
 const cards = document.querySelectorAll('.punto-card');
 const tabs = document.querySelectorAll('.tab');
