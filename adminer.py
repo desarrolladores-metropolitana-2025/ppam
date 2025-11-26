@@ -1,5 +1,5 @@
 # adminer.py
-# Adminer casero (versión "todo integrado")
+# Adminer casero para DB PPAM (versión "todo integrado")
 # - Lista / CRUD
 # - Estructura (SHOW COLUMNS) con editor visual (preview SQL + ejecutar)
 # - Export CSV / JSON
@@ -8,8 +8,8 @@
 # - Backup antes de ALTER (opcional)
 # - Logs de estructura
 #
-# Autor: Tito (generado por ChatGPT) — adaptado para PPAM
-# Fecha: 2025-11-25
+# Autor: Desarrollo PPAM
+# Fecha: 26-11-2025
 
 from flask import Blueprint, render_template_string, request, redirect, url_for, flash, current_app, jsonify, send_file, abort
 from extensiones import db
