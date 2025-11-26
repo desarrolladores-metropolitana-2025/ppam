@@ -28,6 +28,7 @@ from turnos import bp_turnos
 from postulantes import bp_post
 from BotAsignador import bot_api, BotAsignador
 from planificacion import planificacion_bp
+from adminer import adminer_bp
 
 # -------------------------------------------
 # Singletons de extensiones
@@ -51,6 +52,7 @@ app.register_blueprint(bp_turnos)
 app.register_blueprint(bp_post)
 app.register_blueprint(bot_api)
 app.register_blueprint(planificacion_bp)
+app.register_blueprint(adminer_bp, url_prefix="/adminer")
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)
