@@ -1,4 +1,13 @@
-// static/js/app_reemplazos.js
+/* 
+ * PPAM - (c) Desarrolladores equipo PPAM
+ *
+ * 26/11/2025
+ *
+ *  Módulo de reemplazos
+ *
+ * static/js/app_reemplazos_flask.js
+ *
+ **/
 
 const AppReemplazos = (function(){
 
@@ -16,8 +25,11 @@ const AppReemplazos = (function(){
 
     function obtenerSemana(){
         const base = state.fechaBase;
-        const lunes = new Date(base);
-        lunes.setDate(base.getDate() - base.getDay() + 1);
+		const day = base.getDay() || 7;  // domingo (0) pasa a 7
+		const lunes = new Date(base);
+        // lunes.setDate(base.getDate() - base.getDay() + 1);		
+		lunes.setDate(base.getDate() - day + 1);
+
         const dias = [];
         for(let i=0; i<7; i++){
             const d = new Date(lunes);
