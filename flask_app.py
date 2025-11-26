@@ -224,6 +224,16 @@ def publicadores_guardar():
     celular = request.form.get("celular")
     rol = request.form.get("rol")
     password = request.form.get("password")
+    principiante_bin = request.form.get("principiante")
+    ultima_participacion_txt = request.form.get("ultima_participacion")   
+
+    principiante = True if principiante_bin == "1" else False 
+    ultima_participacion = None
+    if ultima_participacion_txt:
+        try:
+            ultima_participacion = datetime.strptime(ultima_participacion_txt, "%Y-%m-%d").date()
+        except ValueError:
+            ultima_participacion = None    
 
     if id:
         pub = Publicador.query.get(int(id))
@@ -235,7 +245,8 @@ def publicadores_guardar():
             pub.congregacion = congregacion
             pub.circuito = circuito
             pub.usuario = usuario
-            pub.rol = rol
+            pub.principiante = principiante
+            pub.ultima_participacion = ultima_participacion
             if password:
                 pub.password_hash = generate_password_hash(password,method="pbkdf2:sha256", salt_length=16)
             flash("Publicador actualizado", "success")
@@ -249,6 +260,8 @@ def publicadores_guardar():
             celular=celular,
             usuario=usuario,
             rol=rol,
+            principiante=principiante,
+            ultima_participacion=ultima_participacion,
             password_hash=generate_password_hash(password,method="pbkdf2:sha256", salt_length=16),
         )
         db.session.add(pub)
@@ -1430,14 +1443,14 @@ def planificacion_index():
         if p.ultima_participacion:
             dias_inactivo = (hoy - p.ultima_participacion).days
         else:
-            dias_inactivo = 9999  # nunca participó
+            dias_inactivo = 180  # nunca participó
 
         pub_info[p.id] = {
             "nombre": f"{p.nombre} {p.apellido}",
             "turnos_semana": turno_count.get(p.id, 0),
             "principiante": bool(getattr(p, "principiante", False)),
             "semanas_sin_participar": semanas,
-            "inactivo": dias_inactivo > 60,
+            "inactivo": dias_inactivo > 120,
             "dias_inactivo": dias_inactivo
         }
 
@@ -1818,15 +1831,9 @@ def mi_perfil():
 
     # GET request
     return render_template("pubview.html", user=current_user)
-
-
-
-
-
-
-
- #🔹 Eliminar solicitud de turno
-# ----------------------------
+# -------------------------------
+# 🔹 Eliminar solicitud de turno
+# -------------------------------
 
 @app.route("/eliminar_solicitud/<int:id>", methods=["POST"])
 @login_required
@@ -1863,15 +1870,44 @@ def eliminar_ausencia(id):
     db.session.commit()
     flash("Ausencia eliminada correctamente.", "success")
     return redirect(url_for("pubview"))
+# ------------------------- Reemplazos --------------------- #
+# ------------------------- Calendario --------------------- #
+# ------------------------- Semanal ------------------------ #
+@app.route("/api/reemplazos/semana")
+@login_required
+def api_reemplazos_semana():
+    fecha = request.args.get("fecha")  # YYYY-MM-DD
+    if not fecha:
+        return {"error": "Falta fecha"}, 400
 
+    base = datetime.strptime(fecha, "%Y-%m-%d").date()
+    lunes = base - timedelta(days=base.weekday())
+    domingo = lunes + timedelta(days=6)
 
+    turnos = Turno.query.filter(
+        Turno.fecha >= lunes,
+        Turno.fecha <= domingo,
+        Turno.is_public == True
+    ).all()
 
+    out = []
+    for t in turnos:
+        ocupados = sum(1 for p in
+                       [t.publicador1_id, t.publicador2_id, t.publicador3_id, t.publicador4_id]
+                       if p)
+        vacantes = 4 - ocupados
 
+        if vacantes > 0:
+            out.append({
+                "id": t.id,
+                "fecha": t.fecha.strftime("%Y-%m-%d"),
+                "hora_inicio": t.hora_inicio.strftime("%H:%M"),
+                "hora_fin": t.hora_fin.strftime("%H:%M"),
+                "punto": t.punto.punto_nombre,
+                "vacantes": vacantes
+            })
 
-
-
-
-
+    return jsonify(out)
 
 @app.route("/tomar_reemplazo/<int:turno_id>", methods=["POST"])
 @login_required

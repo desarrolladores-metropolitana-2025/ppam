@@ -99,6 +99,18 @@
                             <label class="form-label">Confirmar Contraseña</label>
                             <input type="password" class="form-control" name="password_confirm" autocomplete="new-password">
                         </div>
+						<div class="col-12 col-md-6">
+							<label class="form-label">Principiante</label>
+							<select class="form-select" name="principiante">
+							<option value="0" {% if publicador and not publicador.principiante %}selected{% endif %}>No</option>
+							<option value="1" {% if publicador and publicador.principiante %}selected{% endif %}>Sí</option>
+							</select>
+						</div>
+						<div class="col-12 col-md-6">
+							<label class="form-label">Última Participación</label>
+							<input type="date" class="form-control" name="ultima_participacion"
+							value="{% if publicador and publicador.ultima_participacion %}{{ publicador.ultima_participacion.strftime('%Y-%m-%d') }}{% endif %}">
+						</div>
                     </div>
 
                     <div class="mt-3 d-flex flex-wrap gap-2">
@@ -128,6 +140,9 @@
                     <th class="sortable">Congregación <i class="bi bi-arrow-down-up"></i></th>
                     <th class="sortable">Circuito <i class="bi bi-arrow-down-up"></i></th>
                     <th class="sortable">Rol <i class="bi bi-arrow-down-up"></i></th>
+					<th class="sortable">Principiante<i class="bi bi-arrow-down-up"></th>
+					<th class="sortable">Última Part.<i class="bi bi-arrow-down-up"></th>
+
                     <th class="text-center">Acciones</th>
                 </tr>
             </thead>
@@ -142,6 +157,9 @@
                     <td>{{ pub.congregacion }}</td>
                     <td>{{ pub.circuito }}</td>
                     <td>{{ pub.rol }}</td>
+					<td>{{ "Sí" if pub.principiante else "No" }}</td>
+					<td>{{ pub.ultima_participacion if pub.ultima_participacion else "-" }}</td>
+
                     <td class="text-center">
                         <a href="{{ url_for('publicadores_editar', id=pub.id) }}" class="btn btn-sm btn-warning btn-custom mb-1">Editar</a>
                         <a href="{{ url_for('publicadores_eliminar', id=pub.id) }}" class="btn btn-sm btn-danger btn-custom mb-1"

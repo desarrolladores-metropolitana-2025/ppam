@@ -154,6 +154,34 @@
     }
 }
 
+#reemplazosCalendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+}
+
+.reemp-dia {
+    background: #f8f9fa;
+    padding: 6px;
+    border-radius: 8px;
+    min-height: 120px;
+    text-align: center;
+}
+
+.reemp-item {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    padding: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 4px;
+}
+
+.reemp-item:hover {
+    background: #ffe8a1;
+}
+
+
 /* 📱🌙 CALENDARIO MÓVIL — DISEÑO TIPO APP */
 @media (max-width: 576px) {
 
@@ -304,6 +332,12 @@
                
             </div>
         </div>
+		 <!-- NUEVO: BOTÓN REEMPLAZOS AQUÍ -->
+               <button id="btnReemplazos" class="btn btn-epico btn-reemplazo">
+					<i class="bi bi-arrow-repeat"></i>
+					<span>Reemplazos</span>
+			</button>
+
          <!-- NUEVO: BOTÓN CALENDARIO AQUÍ -->
                 <button id="btnShowCalendar" class="btn btn-epico btn-pequeno btn-turno btn-header-cal">
                     <i class="bi bi-calendar-event"></i>
@@ -326,6 +360,18 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
+	<!-- REEMPLAZOS COMPLETO -->
+	<div id="reemplazosContainer" class="card p-3 mt-3" style="display:none;">
+    <h4>Reemplazos de la semana</h4>
+
+    <div class="d-flex justify-content-between my-2">
+        <button id="semPrev" class="btn btn-outline-secondary btn-sm">◀ Semana anterior</button>
+        <button id="semNext" class="btn btn-outline-secondary btn-sm">Semana siguiente ▶</button>
+    </div>
+
+    <div id="reemplazosCalendar" class="d-flex gap-2 flex-wrap"></div>
+	</div>
+
 
     <!-- CALENDARIO COMPLETO -->
     <div id="testCalendarContainer" class="calendar-card mb-4" style="display:none;">
@@ -369,6 +415,7 @@
         </div>
       </div>
     </div>
+	
 
     <!-- CONTENIDO PRINCIPAL -->
     <div class="main-row">
@@ -505,7 +552,29 @@ document.addEventListener('DOMContentLoaded', function(){
     });
 });
 </script>
+<script src="/static/js/app_reemplazos_flask.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function(){
 
+    const btn = document.getElementById("btnReemplazos");
+    const cont = document.getElementById("reemplazosContainer");
+
+    let iniciado = false;
+
+    btn.addEventListener("click", ()=>{
+        const visible = cont.style.display !== "none";
+        if(!visible){
+            cont.style.display = "block";
+            if(!iniciado){
+                AppReemplazos.init();
+                iniciado = true;
+            }
+        } else {
+            cont.style.display = "none";
+        }
+    });
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 {% if current_user.rol == "Admin" %}

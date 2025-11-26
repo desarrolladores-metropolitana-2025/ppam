@@ -82,7 +82,7 @@ tr.turno-borrador td { background-color: #cce5ff !important; } /* celeste */
     <div class="card punto-card" data-punto="{{ punto.id }}" style="{% if not loop.first %}display:none{% endif %}">
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
             <h4 style="margin:0; color:#2846cc;">{{ punto.punto_nombre }}</h4>
-			<span>  (turnos ant.) / ⛔ : inactivo / <span style="color:#28a745; font-weight:bold;">⭐</span> : Principiante</span>
+			<span>  (turnos ant.) / <span style="color:#28a745; font-weight:bold;">⭐</span> : Principiante / ⛔ : inactivo </span>
             <div class="planificacion-stats" style="margin-bottom:10px; font-size:14px; color: blue;">
 			 <strong>Estadísticas:</strong>
 			 <span class="stat-publicos">Publicos: <em>—</em></span>
