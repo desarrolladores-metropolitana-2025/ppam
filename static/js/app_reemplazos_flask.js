@@ -19,21 +19,31 @@ const AppReemplazos = (function(){
     };
 
     // Formato YYYY-MM-DD
-    function toISO(d){
+    /* function toISO(d){
         return d.toISOString().split("T")[0];
-    }
+        }
+    */
+	function toISO(d){
+    return d.getFullYear() + "-" +
+           String(d.getMonth()+1).padStart(2,'0') + "-" +
+           String(d.getDate()).padStart(2,'0');
+			}
 
+	
     function obtenerSemana(){
         const base = state.fechaBase;
 		const day = base.getDay() || 7;  // domingo (0) pasa a 7
 		const lunes = new Date(base);
         // lunes.setDate(base.getDate() - base.getDay() + 1);		
 		lunes.setDate(base.getDate() - day + 1);
+		lunes.setHours(0,0,0,0);
+
 
         const dias = [];
         for(let i=0; i<7; i++){
             const d = new Date(lunes);
             d.setDate(lunes.getDate()+i);
+			d.setHours(0,0,0,0);
             dias.push(d);
         }
         return dias;
