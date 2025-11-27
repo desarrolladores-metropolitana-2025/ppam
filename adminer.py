@@ -13,7 +13,8 @@
 
 from flask import Blueprint, render_template_string, request, redirect, url_for, flash, current_app, jsonify, send_file, abort
 from extensiones import db
-from modelos import *
+# Todos los modelos reales deben importarse sin "*"
+from modelos import Publicador, PuntoPredicacion, SolicitudTurno, Experiencia, Ausencia, Turno
 from sqlalchemy import text
 import os, datetime, json, io, csv, html
 
@@ -122,15 +123,30 @@ def _exec_sql(sql):
         return False, str(e)
 
 def _get_table_meta(table):
-    """Return result of SHOW COLUMNS FROM table as list of dict (Field, Type, Null, Key, Default, Extra)"""
+    """Return result of SHOW COLUMNS FROM table as list of dicts"""
     try:
         with db.engine.connect() as conn:
             res = conn.execute(text(f"SHOW COLUMNS FROM `{table}`"))
-            rows = [dict(r) for r in res.fetchall()]
-        return rows
-    except Exception:
+
+            meta = []
+            for row in res.fetchall():
+                r = row._mapping    # ← ESTA ES LA CLAVE
+
+                meta.append({
+                    "Field": r.get("Field"),
+                    "Type": r.get("Type"),
+                    "Null": r.get("Null"),
+                    "Key": r.get("Key"),
+                    "Default": r.get("Default"),
+                    "Extra": r.get("Extra")
+                })
+
+            return meta
+
+    except Exception as e:
         current_app.logger.exception("Error SHOW COLUMNS")
         return []
+
 
 from sqlalchemy import text
 
@@ -187,7 +203,24 @@ def _get_table_meta_from_model(model):
 
 
 def _validate_table(table):
-    return table in MODELS
+    # Aceptamos tablas ORM
+    if table in MODELS:
+        return True
+
+    # Aceptamos tablas reales del MySQL
+    result = db.session.execute(text("SHOW TABLES")).fetchall()
+
+    tables = []
+    for row in result:
+        val = row[0]
+        if isinstance(val, (bytes, bytearray)):
+            try:
+                val = val.decode("utf-8")
+            except:
+                val = val.decode("latin1", errors="replace")
+        tables.append(val)
+
+    return table in tables
 
 # ------------------ TEMPLATES ------------------
 # Keep templates here for single-file convenience.
@@ -528,7 +561,22 @@ DELETE_CONFIRM_TEMPLATE = """
 
 @adminer_bp.route("/")
 def index():
-    tables = list(MODELS.keys())
+    # print("MODELS:", MODELS)
+    # tables = list(MODELS.keys())
+    # Obtener TODAS las tablas reales del MySQL
+    with db.engine.connect() as conn:
+        res = conn.execute(text("SHOW TABLES"))
+
+        tables = []
+        for row in res.fetchall():
+            val = row[0]
+            if isinstance(val, (bytes, bytearray)):
+                try:
+                    val = val.decode("utf-8")
+                except:
+                    val = val.decode("latin1", errors="replace")
+            tables.append(val)
+
     INDEX_TEMPLATE = """
     <!doctype html><html><head><meta charset="utf-8"><title>Adminer</title>
      <style>
@@ -720,112 +768,272 @@ document.getElementById("formCreateTable").onsubmit = async (e) => {
 def table_view(table):
     if not _validate_table(table):
         return "Tabla no permitida", 404
-    model = MODELS[table]
 
-    # Simple search support via ?q=...&col=...
-    q = request.args.get("q","").strip()
-    col = request.args.get("col","").strip()
-    columns = [c.name for c in model.__table__.columns]
+    # Caso ORM
+    if table in MODELS and MODELS[table] is not None:
+        model = MODELS[table]
+        columns = [c.name for c in model.__table__.columns]
+        # SELECT * FROM MODEL
+        rows = model.query.limit(500).all()
+        ... # búsqueda ORM normal
 
-    # Base query
-    q_obj = model.query
-    if q:
-        # if col provided and valid -> filter by that column (LIKE)
-        if col and col in columns:
-            # use text filter to avoid SQLAlchemy complexities for arbitrary columns
-            pattern = f"%{q}%"
-            q_obj = q_obj.filter(text(f"`{col}` LIKE :p")).params(p=pattern)
-        else:
-            # search across string-like columns (naive)
-            from sqlalchemy import or_, cast, String
-            clauses = []
-            for c in model.__table__.columns:
-                if getattr(c.type, "__class__", None).__name__.lower() in ("varchar","string","text","nvarchar","char"):
-                    clauses.append(c.cast(String).ilike(f"%{q}%"))
-            # if no string columns, fallback to id match
-            if clauses:
-                q_obj = q_obj.filter(or_(*clauses))
-            else:
-                try:
-                    q_int = int(q)
-                    q_obj = q_obj.filter(model.id == q_int)
-                except Exception:
-                    pass
+        return render_template_string(LIST_TEMPLATE, table=table, columns=columns, rows=rows)
 
-    rows = q_obj.limit(1000).all()
-    return render_template_string(LIST_TEMPLATE, table=table, rows=rows, columns=columns, request=request)
+    # Caso tabla genérica
+    # Obtener columnas manualmente
+    meta = _get_table_meta(table)
+    columns = []
+    for m in meta:
+        col = m["Field"]
+        if isinstance(col, (bytes, bytearray)):
+            try:
+                col = col.decode("utf-8")
+            except:
+                col = col.decode("latin1", errors="replace")
+        columns.append(col)
+
+
+    # SELECT * FROM table LIMIT 500
+    with db.engine.connect() as conn:
+        res = conn.execute(text(f"SELECT * FROM `{table}` LIMIT 500"))
+
+        def normalize_row(r):
+            clean = {}
+            for k, v in r._mapping.items():
+                if isinstance(v, (bytes, bytearray)):
+                    try:
+                        clean[k] = v.decode("utf-8")
+                    except:
+                        clean[k] = v.decode("latin1", errors="replace")
+                else:
+                    clean[k] = v
+            return clean
+
+        rows = [normalize_row(r) for r in res]
+        print("ROWS:", rows)
+        #for r in rows:
+            # print("ROW TYPE:", type(r))
+            # print("DIR:", dir(r))
+            # print("AS MAPPING:", getattr(r, "_mapping", None))
+
+
+    # Usamos un template simplificado para tablas genéricas
+    GENERIC_TEMPLATE = """
+    <!doctype html>
+    <html><head><meta charset="utf-8">
+    <title>{{ table }}</title>
+    <style>
+      body{font-family:Arial;background:#f2f2f2;margin:0;padding:0}
+    .container{width:90%;margin:22px auto;background:#fff;padding:18px;border-radius:8px}
+    .tools{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+    .btn{background:#0b74da;color:#fff;padding:8px 10px;border-radius:6px;text-decoration:none}
+    .btn.alt{background:#6b21a8}
+    .btn.danger{background:#cc3333}
+      table{width:100%;border-collapse:collapse}
+      th{background:#0b74da;color:#fff;padding:8px}
+      td{padding:8px;border-bottom:1px solid #eee}
+    table { width: 100%; border-collapse: collapse; table-layout: fixed;}
+    th, td { padding: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; vertical-align: middle; }  
+    </style>
+    </head><body>
+    <div class="container">
+     <div style="display:flex;align-items:center">
+    <div class="tools">
+      <a class="btn" href="{{ url_for('adminer.new_record', table=table) }}">➕ Nuevo Registro</a>
+      <a class="btn alt" href="{{ url_for('adminer.table_structure', table=table) }}">⚙️ Estructura</a>
+      <a class="btn" href="{{ url_for('adminer.table_show_create', table=table) }}">🔎 SHOW CREATE</a>
+      <div class="export-buttons">
+        <a class="btn" href="{{ url_for('adminer.export_table', table=table, fmt='csv') }}">Export CSV</a>
+        <a class="btn" href="{{ url_for('adminer.export_table', table=table, fmt='json') }}">Export JSON</a>
+      </div>
+    </div>
+   </div>
+      <h2>Tabla: {{ table }}</h2>
+      <table>
+        <tr>
+        {% for col in columns %}
+            <th>{{ col }}</th>
+        {% endfor %}
+        </tr>
+
+        {% for row in rows %}
+        <tr>
+            {% for col in columns %}
+                <td>{{ row[col] }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+
+      <p style="margin-top:18px;">
+         Esta tabla no está registrada como modelo SQLAlchemy.<br>
+         Podés agregar columnas en “Estructura”.
+      </p>
+    </div>
+    </body></html>
+    """
+
+    return render_template_string(GENERIC_TEMPLATE, table=table, columns=columns, rows=rows)
+# ------------------ GENERIC + ORM: NEW RECORD ------------------
 
 @adminer_bp.route("/table/<table>/new", methods=["GET","POST"])
 def new_record(table):
     if not _validate_table(table):
         return "Tabla no permitida", 404
-    model = MODELS[table]
-    columns = [c.name for c in model.__table__.columns if c.name != "id"]
+
+    # TABLA CON MODELO ORM
+    if table in MODELS and MODELS[table] is not None:
+        model = MODELS[table]
+        columns = [c.name for c in model.__table__.columns if c.name != "id"]
+
+        if request.method == "POST":
+            data = {}
+            for col in columns:
+                val = request.form.get(col)
+                data[col] = val if val != "" else None
+            obj = model(**data)
+            db.session.add(obj)
+            db.session.commit()
+            return redirect(url_for("adminer.table_view", table=table))
+
+        return render_template_string(FORM_TEMPLATE, action="Nuevo", table=table, columns=columns, values={})
+
+    # TABLA GENERICA SIN MODELO
+    meta = _get_table_meta(table)
+    columns = [m["Field"] for m in meta if m["Field"] != "id"]
+
     if request.method == "POST":
-        data = {}
+        fields = []
+        values = []
+        params = {}
+
         for col in columns:
             val = request.form.get(col)
-            data[col] = val if val != "" else None
-        obj = model(**data)
-        db.session.add(obj)
-        db.session.commit()
+            fields.append(f"`{col}`")
+            values.append(f":{col}")
+            params[col] = val if val != "" else None
+
+        sql = f"INSERT INTO `{table}` ({', '.join(fields)}) VALUES ({', '.join(values)})"
+
+        try:
+            # Usamos begin() para que haga commit automáticamente
+            with db.engine.begin() as conn:
+                conn.execute(text(sql), params)
+        except Exception as e:
+            return f"Error al guardar: {e}"
+
         return redirect(url_for("adminer.table_view", table=table))
+
     return render_template_string(FORM_TEMPLATE, action="Nuevo", table=table, columns=columns, values={})
+
+
+# ------------------ GENERIC + ORM: EDIT RECORD ------------------
 
 @adminer_bp.route("/table/<table>/edit/<int:id>", methods=["GET","POST"])
 def edit_record(table, id):
     if not _validate_table(table):
         return "Tabla no permitida", 404
-    model = MODELS[table]
-    obj = model.query.get(id)
-    if not obj:
+
+    # ORM
+    if table in MODELS and MODELS[table] is not None:
+        model = MODELS[table]
+        obj = model.query.get(id)
+        if not obj:
+            return "Registro no encontrado", 404
+
+        columns = [c.name for c in model.__table__.columns if c.name != "id"]
+
+        if request.method == "POST":
+            for col in columns:
+                val = request.form.get(col)
+                setattr(obj, col, val if val != "" else None)
+            db.session.commit()
+            return redirect(url_for("adminer.table_view", table=table))
+
+        values = {col: getattr(obj, col) for col in columns}
+        return render_template_string(FORM_TEMPLATE, action="Editar", table=table, columns=columns, values=values)
+
+    # GENERIC TABLE
+    meta = _get_table_meta(table)
+    columns = [m["Field"] for m in meta if m["Field"] != "id"]
+
+    # cargar fila
+    with db.engine.connect() as conn:
+        row = conn.execute(text(f"SELECT * FROM `{table}` WHERE id=:id"), {"id": id}).fetchone()
+    if not row:
         return "Registro no encontrado", 404
-    columns = [c.name for c in model.__table__.columns if c.name != "id"]
+
+    row = row._mapping  # RowMapping
+
     if request.method == "POST":
+        sets = []
+        params = {"id": id}
         for col in columns:
-            val = request.form.get(col)
-            setattr(obj, col, val if val != "" else None)
-        db.session.commit()
+            sets.append(f"`{col}` = :{col}")
+            params[col] = request.form.get(col) or None
+
+        sql = f"UPDATE `{table}` SET {', '.join(sets)} WHERE id=:id"
+
+        with db.engine.connect() as conn:
+            conn.execute(text(sql), params)
+
         return redirect(url_for("adminer.table_view", table=table))
-    values = {col: getattr(obj, col) for col in columns}
+
+    values = {c: row[c] for c in columns}
     return render_template_string(FORM_TEMPLATE, action="Editar", table=table, columns=columns, values=values)
+
+
+# ------------------ GENERIC + ORM: DELETE RECORD ------------------
 
 @adminer_bp.route("/table/<table>/delete/<int:id>")
 def delete_record(table, id):
     if not _validate_table(table):
         return "Tabla no permitida", 404
-    model = MODELS[table]
-    obj = model.query.get(id)
-    if not obj:
-        return "Registro no encontrado", 404
-    db.session.delete(obj)
-    db.session.commit()
+
+    # ORM
+    if table in MODELS and MODELS[table] is not None:
+        model = MODELS[table]
+        obj = model.query.get(id)
+        if not obj:
+            return "Registro no encontrado", 404
+        db.session.delete(obj)
+        db.session.commit()
+        return redirect(url_for("adminer.table_view", table=table))
+
+    # GENERIC TABLE
+    sql = f"DELETE FROM `{table}` WHERE id=:id"
+    with db.engine.connect() as conn:
+        conn.execute(text(sql), {"id": id})
+
     return redirect(url_for("adminer.table_view", table=table))
 
 # ------------------ STRUCTURE ROUTES ------------------
 
 @adminer_bp.route("/table/<table>/structure", methods=["GET", "POST"])
+@adminer_bp.route("/table/<table>/structure", methods=["GET", "POST"])
 def table_structure(table):
-    if table not in MODELS:
-        return "Tabla no encontrada", 404
 
-    model = MODELS.get(table)
+    # verificar acceso
+    if not _validate_table(table):
+        return "Tabla no permitida", 404
 
-    # Intentamos obtener meta desde SHOW COLUMNS para que coincida con la plantilla
-    meta = _get_table_meta_from_model(model)
+    if table in MODELS and MODELS[table] is not None:
+        # usar modelo ORM
+        meta = _get_table_meta_from_model(MODELS[table])
+    else:
+        # tabla genérica sin modelo
+        meta = _get_table_meta(table)
 
-    # leer log de estructura si existe
     log_text = _read_struct_log_text(limit=50)
-
-    preview_sql = None
 
     return render_template_string(
         STRUCTURE_TEMPLATE,
         table=table,
         meta=meta,
-        preview_sql=preview_sql,
+        preview_sql=None,
         log=log_text
     )
+
 
 # Add column -> preview -> execute
 @adminer_bp.route("/table/<table>/structure/add", methods=["GET","POST"])
@@ -842,7 +1050,6 @@ def table_add_column(table):
         backup = request.form.get("backup", "1")
         default_clause = ""
         if default:
-            # naive detection number or string
             try:
                 float(default)
                 default_clause = f" DEFAULT {default}"
@@ -1119,6 +1326,29 @@ def create_table():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@adminer_bp.route("/table/execute_sql", methods=["POST"])
+def adminer_execute_sql():
+    sql = request.form.get("sql", "").strip()
+    table = request.form.get("table", "")
+
+    if not sql:
+        return "SQL vacío", 400
+
+    if not _validate_table(table):
+        return "Tabla no permitida", 403
+
+    try:
+        db.session.execute(db.text(sql))
+        db.session.commit()
+        flash("SQL ejecutado correctamente", "success")
+    except Exception as e:
+        flash(f"Error al ejecutar SQL: {e}", "danger")
+        return redirect(url_for("adminer.table_structure", table=table))
+
+    return redirect(url_for("adminer.table_structure", table=table))
+
+
 
 # ------------------ END ------------------
 # Note: register blueprint in your flask_app: app.register_blueprint(adminer_bp)
