@@ -599,6 +599,56 @@ def index():
     margin-right: 15px;
     border-radius: 12px;
 }
+.fab-btn {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: none;
+    background: #0b74da;
+    color: #fff;
+    font-size: 36px;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+    transition: transform .2s;
+    z-index: 9999;
+}
+.fab-btn:hover { transform: scale(1.12); }
+
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    top:0;left:0;right:0;bottom:0;
+    background: rgba(0,0,0,0.5);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:99999;
+}
+.modal-box {
+    background:#fff;
+    padding:24px;
+    border-radius:10px;
+    width: 360px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.3);
+}
+.modal-box h3 { margin-top:0; margin-bottom:14px; }
+.modal-box input {
+    width:100%;
+    margin-top:6px;
+    margin-bottom:12px;
+    padding:8px;
+    border-radius:6px;
+    border:1px solid #ccc;
+}
+.modal-actions {
+    display:flex;
+    justify-content:flex-end;
+    gap:8px;
+}
+.btn.danger { background:#cc3333; }
     </style>
     </head><body>
     <div class="header"><img src="/static/img/jw_logo.png" style="height:42px"> Adminer — PPAM</div>
@@ -607,6 +657,61 @@ def index():
         <a href="{{ url_for('adminer.table_view', table=t) }}"><div class="card">{{ t.replace('_',' ').title() }}</div></a>
       {% endfor %}
     </div>
+    <!-- Floating Action Button -->
+<button id="fabAddTable" class="fab-btn">+</button>
+
+<!-- Modal Crear Tabla -->
+<div id="modalCreateTable" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <h3>Crear nueva tabla</h3>
+
+    <form id="formCreateTable">
+      <label>Nombre de la tabla</label>
+      <input name="table_name" required placeholder="p.ej. nuevos_datos">
+
+      <label>Engine (opcional)</label>
+      <input name="engine" placeholder="InnoDB">
+
+      <label>Charset (opcional)</label>
+      <input name="charset" placeholder="utf8mb4">
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Crear</button>
+        <button type="button" class="btn danger" onclick="closeCreateModal()">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function openCreateModal() {
+    document.getElementById("modalCreateTable").style.display = "flex";
+}
+function closeCreateModal() {
+    document.getElementById("modalCreateTable").style.display = "none";
+}
+document.getElementById("fabAddTable").onclick = openCreateModal;
+
+document.getElementById("formCreateTable").onsubmit = async (e) => {
+    e.preventDefault();
+    let fd = new FormData(e.target);
+    let data = Object.fromEntries(fd);
+
+    let res = await fetch("/adminer/create_table", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+    });
+
+    let j = await res.json();
+    if (!j.ok) {
+        alert("ERROR: " + j.error);
+        return;
+    }
+
+    alert("Tabla creada correctamente.");
+    location.reload();
+};
+</script>
     </body></html>
     """
     return render_template_string(INDEX_TEMPLATE, tables=tables)
@@ -981,6 +1086,39 @@ def table_structure_execute(table):
     if not ok:
         return jsonify({"ok": False, "error": err}), 500
     return jsonify({"ok": True})
+# -------------------------- CREATE TABLE (sql) -----------------------------------------------    
+@adminer_bp.route("/create_table", methods=["POST"])
+def create_table():
+    data = request.get_json(force=True)
+    table = data.get("table_name", "").strip()
+    engine = data.get("engine", "InnoDB").strip() or "InnoDB"
+    charset = data.get("charset", "utf8mb4").strip() or "utf8mb4"
+
+    if not table:
+        return jsonify({"ok": False, "error": "nombre de tabla requerido"}), 400
+
+    # Validaciones básicas
+    if " " in table or "-" in table:
+        return jsonify({"ok": False, "error": "nombre inválido (sin espacios ni guiones)"}), 400
+
+    sql = f"""
+    CREATE TABLE `{table}` (
+        `id` INT NOT NULL AUTO_INCREMENT,
+        PRIMARY KEY (`id`)
+    ) ENGINE={engine} DEFAULT CHARSET={charset};
+    """.strip()
+
+    try:
+        _backup_table("ALL_TABLES_BEFORE_CREATE")
+        ok, err = _exec_sql(sql)
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 500
+
+        # Logging
+        _append_struct_log(f"Tabla creada: {table}")
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ------------------ END ------------------
 # Note: register blueprint in your flask_app: app.register_blueprint(adminer_bp)
