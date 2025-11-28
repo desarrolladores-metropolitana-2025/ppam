@@ -882,6 +882,9 @@ def table_view(table):
         <a class="btn" href="{{ url_for('adminer.export_table', table=table, fmt='csv') }}">Export CSV</a>
         <a class="btn" href="{{ url_for('adminer.export_table', table=table, fmt='json') }}">Export JSON</a>
       </div>
+      <div style="margin-bottom: 15px;">
+    <a class="btn" href="{{ url_for('adminer.index') }}"> ← Volver </a>
+</div>
     </div>
    </div>
       <h2>Tabla: {{ table }}</h2>
