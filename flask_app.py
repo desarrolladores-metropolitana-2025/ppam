@@ -29,6 +29,7 @@ from postulantes import bp_post
 from BotAsignador import bot_api, BotAsignador
 from planificacion import planificacion_bp
 from adminer import adminer_bp
+from navegador import navegador_bp
 
 # -------------------------------------------
 # Singletons de extensiones
@@ -48,11 +49,15 @@ INSTANCIA = os.getenv("INSTANCIA")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 app = Flask(__name__)
+app.config['FILEBROWSER_ROOT'] = '/home/ppamappcaba/mysite'  
 app.register_blueprint(bp_turnos)
 app.register_blueprint(bp_post)
 app.register_blueprint(bot_api)
 app.register_blueprint(planificacion_bp)
 app.register_blueprint(adminer_bp, url_prefix="/adminer")
+app.register_blueprint(navegador_bp, url_prefix="/navegador")
+if __name__ == "__main__":
+    app.run(debug=True)
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)
