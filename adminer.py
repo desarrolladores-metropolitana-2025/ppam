@@ -854,6 +854,7 @@ def table_view(table):
         {% for col in columns %}
             <th>{{ col }}</th>
         {% endfor %}
+        <th>Acciones</th>
         </tr>
 
         {% for row in rows %}
@@ -861,6 +862,10 @@ def table_view(table):
             {% for col in columns %}
                 <td>{{ row[col] }}</td>
             {% endfor %}
+     <td class="actions">
+        <a class="btn" href="{{ url_for('adminer.edit_record', table=table, id=row.id) }}">✏ Editar</a>
+        <a class="btn danger" href="{{ url_for('adminer.delete_record', table=table, id=row.id) }}" onclick="return confirm('Borrar registro?')">🗑 Borrar</a>
+    </td>
         </tr>
         {% endfor %}
       </table>
