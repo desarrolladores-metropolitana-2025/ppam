@@ -436,6 +436,7 @@ STRUCTURE_TEMPLATE = """
     <div><strong>Tabla:</strong> {{ table }} <span class="small"> &middot; columnas: {{ meta|length }}</span></div>
     <div class="table-wrapper">
       <a class="btn" href="{{ url_for('adminer.table_add_column', table=table) }}">➕ Agregar columna</a>
+      <a class="btn danger" href="{{ url_for('adminer.table_delete', table=table) }}">🗑 Eliminar tabla</a>
       <a class="btn" href="{{ url_for('adminer.table_view', table=table) }}">⟲ Volver</a>
     </div>
   </div>
@@ -556,6 +557,27 @@ DELETE_CONFIRM_TEMPLATE = """
 </div>
 </body></html>
 """
+DELETE_TABLE_TEMPLATE = """
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Eliminar tabla</title></head>
+<body style="font-family:Arial;background:#f2f2f2;padding:30px">
+<div style="max-width:600px;margin:auto;background:white;padding:20px;border-radius:8px">
+  <h2>Eliminar tabla — {{ table }}</h2>
+  <p>⚠️ Esto eliminará <strong>toda la tabla completa</strong> y no se podrá deshacer.</p>
+  <p>Se hará un backup automático del CREATE TABLE antes de borrar.</p>
+
+  <form method="post">
+      <label><input type="checkbox" name="backup" checked> Hacer backup</label><br><br>
+      <button style="background:#cc3333;color:white;padding:10px 14px;border:none;border-radius:6px">
+          Confirmar eliminación
+      </button>
+      <a href="{{ url_for('adminer.table_structure', table=table) }}" style="margin-left:20px">Cancelar</a>
+  </form>
+</div>
+</body>
+</html>
+"""
 
 # ------------------ ROUTES (index / list / CRUD) ------------------
 
@@ -655,7 +677,7 @@ def index():
     height: 72px;
     border-radius: 50%;
     border: none;
-    background: #0b74da;
+    background: #db74da;
     color: #fff;
     font-size: 36px;
     cursor: pointer;
@@ -697,6 +719,17 @@ def index():
     gap:8px;
 }
 .btn.danger { background:#cc3333; }
+footer {
+    width: 100%;
+    text-align: center;
+    padding: 12px;
+    background: #0b74da;
+    color: white;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    font-size: 14px;
+}
     </style>
     </head><body>
     <div class="header"><img src="/static/img/jw_logo.png" style="height:42px"> Adminer — PPAM</div>
@@ -760,6 +793,9 @@ document.getElementById("formCreateTable").onsubmit = async (e) => {
     location.reload();
 };
 </script>
+<footer>
+    Equipo de desarrollo PPAM 2025 · ©
+</footer>
     </body></html>
     """
     return render_template_string(INDEX_TEMPLATE, tables=tables)
@@ -1352,6 +1388,28 @@ def adminer_execute_sql():
         return redirect(url_for("adminer.table_structure", table=table))
 
     return redirect(url_for("adminer.table_structure", table=table))
+# ----------------------- DROP TABLE ------------------------------------
+@adminer_bp.route("/table/<table>/delete", methods=["GET", "POST"])
+def table_delete(table):
+    if not _validate_table(table):
+        return "Tabla no permitida", 404
+
+    if request.method == "POST":
+        backup = request.form.get("backup") == "on"
+        if backup:
+            _backup_table(table)
+
+        ok, err = _exec_sql(f"DROP TABLE `{table}`;")
+        if not ok:
+            return f"Error eliminando tabla: {err}", 500
+
+        # Si era un modelo ORM, lo removemos de MODELS para evitar errores
+        if table in MODELS:
+            del MODELS[table]
+
+        return redirect(url_for("adminer.index"))
+
+    return render_template_string(DELETE_TABLE_TEMPLATE, table=table)
 
 
 
