@@ -441,7 +441,26 @@ function attachUI(){
   qs('#go-root').onclick = ()=>load('');
   qs('#clear-selected').onclick = ()=>{ selected.clear(); qs('#selected-count').textContent='0'; load(current); };
   qs('#btn-zip').onclick = ()=>zipSelected();
-
+//----  Botones faltantes -------------
+qs('#btn-new-folder').onclick = async () => {
+  const name = prompt('Nombre de la nueva carpeta:');
+  if(!name) return;
+  const body = new FormData();
+  body.append('p', current);
+  body.append('name', name);
+  const res = await fetch('/navegador/api/new_folder', {method:'POST', body});
+  if(res.ok) load(current);
+};
+qs('#btn-new-file').onclick = async () => {
+  const name = prompt('Nombre del nuevo archivo:');
+  if(!name) return;
+  const body = new FormData();
+  body.append('p', current);
+  body.append('name', name);
+  const res = await fetch('/navegador/api/new_file', {method:'POST', body});
+  if(res.ok) load(current);
+};
+// ---- Fin BF ------------
   // file input
   const input = qs('#upload-input');
   input.onchange = async (e)=>{
@@ -451,7 +470,7 @@ function attachUI(){
     load(current);
   };
   // wrapper button
-  qs('.btn').onclick = (e)=>{}; // noop to keep styling
+  // qs('.btn').onclick = (e)=>{}; // noop to keep styling
   // drag & drop
   const drop = qs('#dropzone');
   drop.ondragover = e=>{ e.preventDefault(); drop.style.background='#eef'; };
