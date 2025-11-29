@@ -20,6 +20,24 @@ from werkzeug.utils import secure_filename
 MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200MB por archivo aprox (ajustable)
 
 navegador_bp = Blueprint("navegador_full", __name__, url_prefix="/navegador")
+# ----- usar API Pythonanywhere ------------------------------------------------
+PA_USERNAME = "ppamappcaba"
+PA_API_TOKEN = '97f429626ebf2be6af4721cc37eafed15bbee5f8'
+API_TOKEN = os.getenv("PA_API_TOKEN")  # Mejor guardarlo en variable de entorno
+WEBAPP_DOMAIN = "ppamappcaba.pythonanywhere.com"
+
+@navegador_bp.route("/reload_webapp", methods=["POST"])
+def reload_webapp():
+    url = f"https://www.pythonanywhere.com/api/v0/user/{PA_USERNAME}/webapps/{WEBAPP_DOMAIN}/reload/"
+    headers = {
+        "Authorization": f"Token {API_TOKEN}"
+    }
+    r = requests.post(url, headers=headers)
+    
+    if r.status_code == 200:
+        return jsonify({"status": "ok", "message": "Webapp reloaded"})
+    else:
+        return jsonify({"status": "error", "message": r.text}), 400
 
 # --- Helpers ---
 def get_root():
@@ -178,6 +196,14 @@ body.dark-mode a.btn {
         <button class="btn ghost" id="toggle-theme">Dark</button>
       </div>
       <button class="btn" id="refresh">Refrescar</button>
+      <a href="https://www.pythonanywhere.com/user/ppamappcaba/webapps/#tab_id_ppamappcaba_pythonanywhere_com"
+   target="_blank"
+   class="btn btn-success"
+   style="font-size:14px; padding:6px 12px; display:inline-flex; align-items:center; gap:6px;">
+    <i class="bi bi-arrow-repeat"></i>
+    Reload WebApp
+</a>
+
     </div>
   </div>
 
