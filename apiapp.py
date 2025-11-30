@@ -31,6 +31,8 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
+from flask_login import login_required, current_user
+
 
 import requests
 from flask import (
@@ -51,7 +53,20 @@ PA_API_BASE = f"https://www.pythonanywhere.com/api/v0/user/{PA_USERNAME}" if PA_
 REQUEST_TIMEOUT = 12
 CACHE = {"webapps": {"ts": 0, "data": None}, "last_response": None}
 CACHE_TTL = 60  # seconds for some caches
+# ---------- LOGIN REQUIRED ----------------------
+def admin_required(func):
+    from functools import wraps
 
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login", next=request.url))
+
+        if getattr(current_user, "rol", None) != "Admin":
+            abort(403, description="No tenés permisos para acceder a esta sección.")
+
+        return func(*args, **kwargs)
+    return wrapper
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
@@ -544,6 +559,10 @@ input[type=text], textarea, select{padding:8px;border-radius:8px;border:1px soli
     <div class="controls">
       <button id="btn-refresh" class="btn light">Refresh</button>
       <button id="btn-clear" class="btn light">Clear</button>
+       <a href="/ppamtools" class="btn" style="text-decoration:none; display:flex; align-items:center;">
+    Panel</a><a href="/logout" class="btn" style="text-decoration:none; display:flex; align-items:center;">
+    Salir
+  </a>
     </div>
   </div>
 
@@ -820,10 +839,17 @@ el("btn-clear").onclick = ()=>{ el("webapps-list").innerText = ""; el("fm-list")
 # Index route (renders template)
 # -----------------------------------------------------------------------------
 @apiapp_bp.route("/", methods=["GET"])
+@login_required
+@admin_required
 def index():
     # warn if env not set
     if not PA_API_TOKEN or not PA_USERNAME:
         return render_template_string(INDEX_TEMPLATE.replace("No logs yet", "⚠️ Set PA_API_TOKEN and PA_USERNAME in environment variables (Dashboard → Account → Environment variables)"))
     return render_template_string(INDEX_TEMPLATE)
-
+# ----- Proteger todo el archivo: --------------------------------
+def protect_apiapp(app):
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint.startswith("apiapp."):
+            view = app.view_functions[rule.endpoint]
+            app.view_functions[rule.endpoint] = login_required(admin_required(view))
 # End of file

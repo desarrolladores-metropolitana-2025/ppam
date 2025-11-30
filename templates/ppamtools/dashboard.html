@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>PPAM Tools Pro</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='ppamtools/dashboard.css') }}">
+</head>
+<body id="body">
+
+<div class="container py-4">
+
+    <!-- ENCABEZADO -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <img src="https://ui-avatars.com/api/?name={{ current_user.usuario }}&background=0D6EFD&color=fff&size=60&bold=true"
+                 class="rounded-circle me-3 shadow">
+            <div>
+                <h3 class="m-0">Hola, {{ current_user.usuario }}</h3>
+                <small>Rol: {{ current_user.rol }} • Último acceso: {{ current_user.last_login or "N/A" }}</small>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <a href="/main" class="btn btn-primary"><i class="fa fa-home"></i> Panel Principal</a>
+			<a href="/logout" class="btn btn-primary"><i class="fa fa-exit"></i> Salir</a>
+            <button id="toggleDark" class="btn btn-secondary"><i class="fa fa-moon"></i></button>
+        </div>
+    </div>
+
+    <!-- WIDGETS -->
+    <div class="row g-3 mb-4" id="widgets">
+        <div class="col-md-3">
+            <div class="widget">
+                <div class="icon bg-primary"><i class="fa fa-users"></i></div>
+                <div>
+                    <h4 id="w_publicadores">–</h4>
+                    <small>Publicadores</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="widget">
+                <div class="icon bg-success"><i class="fa fa-calendar-check"></i></div>
+                <div>
+                    <h4 id="w_asignaciones">–</h4>
+                    <small>Asignaciones 30 días</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="widget">
+                <div class="icon bg-warning"><i class="fa fa-clock"></i></div>
+                <div>
+                    <h4 id="w_solicitudes">–</h4>
+                    <small>Solicitudes pendientes</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="widget">
+                <div class="icon bg-danger"><i class="fa fa-server"></i></div>
+                <div>
+                    <h4><span id="w_cpu">–</span>% CPU</h4>
+                    <small><span id="w_mem">–</span>% MEM — Uptime: <span id="w_uptime">–</span>h</small>
+                </div>
+            </div>
+        </div>
+    </div>
+<!-- CARDS APLICACIONES -->
+    <div class="row g-4">
+
+        <div class="col-md-3">
+		{% if current_user.is_authenticated and current_user.rol == "Admin" %}
+            <a href="/apiapp/" class="tool-card" target="_blank">
+		{% endif %}	
+                <i class="fa fa-code" style="color:#0d6efd;"></i>
+                <h4>API App</h4>
+            </a>
+        </div>
+
+        <div class="col-md-3">
+		{% if current_user.is_authenticated and current_user.rol == "Admin" %}
+            <a href="/navegador/" class="tool-card" target="_blank">
+		{% endif %}		
+                <i class="fa fa-folder-open" style="color:#198754;"></i>
+                <h4>Navegador</h4>
+            </a>
+        </div>
+
+        <div class="col-md-3">
+		{% if current_user.is_authenticated and current_user.rol == "Admin" %}
+            <a href="/adminer/" class="tool-card" target="_blank">
+		{% endif %}	
+                <i class="fa fa-database" style="color:#dc3545;"></i>
+                <h4>Adminer</h4>
+            </a>
+        </div>
+
+        <div class="col-md-3">
+		{% if current_user.is_authenticated and current_user.rol == "Admin" %}
+            <a href="/weekplan/" class="tool-card" target="_blank">
+		{% endif %}	
+                <i class="fa fa-calendar-week" style="color:#fd7e14;"></i>
+                <h4>Planificador</h4>
+            </a>
+        </div>
+
+    </div><hr>
+    <!-- GRAFICO -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="fa fa-chart-line"></i> Actividad (últimos 7 días)</h5>
+            <canvas id="grafico_semanal" height="120"></canvas>
+        </div>
+    </div>
+
+    <!-- LOGS DEL SISTEMA -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="fa fa-terminal"></i> Logs del sistema</h5>
+            <pre id="logs_sistema" class="logs-box">Cargando logs...</pre>
+            <button class="btn btn-sm btn-outline-danger" onclick="limpiarLogs()">
+                <i class="fa fa-trash"></i> Limpiar
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<!-- NOTIFICACIONES -->
+<div id="notif-container" class="notif-container"></div>
+
+<!-- MINI CHAT -->
+<div id="chat-btn" class="chat-btn"><i class="fa fa-comments"></i></div>
+<div id="chat-box" class="chat-box d-none">
+    <div class="chat-header">
+        <strong>Mini Chat</strong>
+        <span id="chat-close">×</span>
+    </div>
+    <div id="chat-mensajes" class="chat-mensajes"></div>
+    <div class="chat-input">
+        <input id="chat-texto" placeholder="Escribe un mensaje...">
+        <button id="chat-send"><i class="fa fa-paper-plane"></i></button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='ppamtools/dashboard.js') }}"></script>
+
+</body>
+</html>

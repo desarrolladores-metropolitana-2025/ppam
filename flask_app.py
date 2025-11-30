@@ -31,12 +31,14 @@ from planificacion import planificacion_bp
 from adminer import adminer_bp
 from navegador import navegador_bp
 from apiapp import apiapp_bp
-
+from ppamtools import ppamtools_bp
+from navegador import protect_navegador
+from apiapp import protect_apiapp
+from adminer import protect_adminer
 # -------------------------------------------
 # Singletons de extensiones
 # -------------------------------------------
 from extensiones import db, login_manager
-
 
 # -------------------------------------------
 # App
@@ -50,6 +52,9 @@ INSTANCIA = os.getenv("INSTANCIA")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 app = Flask(__name__)
+protect_navegador(app)
+protect_apiapp(app)
+protect_adminer(app)
 app.config['FILEBROWSER_ROOT'] = '/home/ppamappcaba/mysite'  
 app.register_blueprint(bp_turnos)
 app.register_blueprint(bp_post)
@@ -58,11 +63,13 @@ app.register_blueprint(planificacion_bp)
 app.register_blueprint(adminer_bp, url_prefix="/adminer")
 app.register_blueprint(navegador_bp, url_prefix="/navegador")
 app.register_blueprint(apiapp_bp)
+app.register_blueprint(ppamtools_bp)
 if __name__ == "__main__":
     app.run(debug=True)
 # --- Registro de Blueprints ---
 # app.register_blueprint(api)
 # app.re gister_blueprint(bp_puntos)
+# app.config['FILEBROWSER_ROOT'] = '/home/ppamappcaba/mysite'
 app.config["DEBUG"] = True
 app.config["SECRET_KEY"] = SECRET_KEY
 app.config["SQLALCHEMY_DATABASE_URI"] = (
@@ -98,22 +105,45 @@ def time_to_str(t):
 # -------------------------------------------
 # RUTAS
 # -------------------------------------------
+# ----
+#- Login() selectivo.
+#-----
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+
+    # Mantener el parámetro next si existe
+    next_page = request.args.get("next")
+
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         user = Publicador.query.filter_by(usuario=username).first()
+
         if user and user.check_password(password):
             login_user(user, remember=("remember" in request.form))
-            next_page = request.args.get("next")
-            return redirect(next_page or url_for("index"))
+
+            # 1) Si existe ?next= lo usamos SIEMPRE
+            if next_page:
+                return redirect(next_page)
+
+            # 2) Si NO hay next pero el usuario venía a PPAMTools,
+            #    redirigimos a su home del módulo
+            destino = request.form.get("destino")
+            if destino in ("ppamtools", "main"):
+                return redirect(f"/{destino}")
+
+            # 3) Comportamiento por rol
+            if user.rol == "Admin":
+                return redirect(url_for("main_page"))
+            else:
+                return redirect(url_for("pubview"))
+
         else:
             error = True
             flash("Usuario o contraseña incorrectos", "danger")
-    return render_template("login_page.html", error=error)
 
+    return render_template("login_page.html", error=error)
 
 @app.route("/logout")
 @login_required
@@ -142,6 +172,7 @@ def main_page():
 
 # Nuevo endpoint para el planificador interactivo:
 @app.route("/weekplan/")
+@login_required
 def weekplan():
     return render_template("weekplan/index.html")
     

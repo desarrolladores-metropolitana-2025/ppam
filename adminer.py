@@ -16,14 +16,27 @@ from extensiones import db
 # Todos los modelos reales deben importarse sin "*"
 from modelos import Publicador, PuntoPredicacion, SolicitudTurno, Experiencia, Ausencia, Turno
 from sqlalchemy import text
+from flask_login import login_required, current_user
 import os, datetime, json, io, csv, html
 
 adminer_bp = Blueprint("adminer", __name__, url_prefix="/adminer")
 @adminer_bp.app_template_filter('getattr')
 def jinja_getattr(obj, attr):
     return getattr(obj, attr, None)
+# ----- Login Admin --------------------------    
+def admin_required(func):
+    from functools import wraps
 
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login", next=request.url))
 
+        if getattr(current_user, "rol", None) != "Admin":
+            abort(403, description="No tenés permisos para acceder a esta sección.")
+
+        return func(*args, **kwargs)
+    return wrapper
 # ------------------ CONFIG ------------------
 MODELS = {
     "publicadores": Publicador,
@@ -38,6 +51,10 @@ BACKUP_DIR = "/home/ppamappcaba/backups"
 STRUCT_LOG_PATH = "/home/ppamappcaba/mysite/tmp/adminer_struct_log.json"
 os.makedirs(BACKUP_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(STRUCT_LOG_PATH), exist_ok=True)
+# ----- usar API Pythonanywhere ------------------------------------------------
+PA_USERNAME = "ppamappcaba"
+API_TOKEN = os.getenv("PA_API_TOKEN")  # Mejor guardarlo en variable de entorno
+WEBAPP_DOMAIN = "ppamappcaba.pythonanywhere.com"
 
 # ------------------ HELPERS / UTIL ------------------
 def _append_struct_log(msg):
@@ -582,7 +599,14 @@ DELETE_TABLE_TEMPLATE = """
 # ------------------ ROUTES (index / list / CRUD) ------------------
 
 @adminer_bp.route("/")
+@login_required
+@admin_required
 def index():
+    if not API_TOKEN or not PA_USERNAME:
+        return render_template_string(INDEX_TEMPLATE.replace(
+            "No logs yet",
+            "⚠️ Set API_TOKEN and PA_USERNAME..."
+        ))
     # print("MODELS:", MODELS)
     # tables = list(MODELS.keys())
     # Obtener TODAS las tablas reales del MySQL
@@ -609,16 +633,55 @@ def index():
         margin: 0;
         padding: 0;
     }
-
-    .header {
-        background: #333;
-        padding: 20px;
-        color: white;
-        font-size: 28px;
-        font-weight: bold;
-        text-align: center;
-        letter-spacing: 1px;
-    }
+.btn{background:var(--accent);color:#fff;padding:8px 10px;border-radius:8px;text-decoration:none;border:none;cursor:pointer}
+.btn.alt{background:#6b7280}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--panel)}
+   .header {
+    background: #333;
+    padding: 20px;
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    text-align: center;   /* el título sigue centrado */
+    letter-spacing: 1px;
+    position: relative;   /* permite ubicar los botones flotando */
+}
+/* Contenedor de botones en esquina superior derecha */
+.header-actions {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%); /* centra verticalmente */
+    display: flex;
+    gap: 10px;
+}
+/* Tus botones existentes siguen funcionando con tu estilo */
+.btn {
+    background: var(--accent);
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 8px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+}
+.btn.alt {
+    background: #6b7280;
+    font-size: 16px;
+}
+.btn.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--panel);
+    font-size: 16px;
+}
+    .header .logout-btn {
+    position: absolute;         /* <-- la ubicamos sin romper el centrado */
+    right: 20px;                /* botón a la derecha */
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    padding: 6px 12px;}
 
     .sub {
         text-align: center;
@@ -732,7 +795,14 @@ footer {
 }
     </style>
     </head><body>
-    <div class="header"><img src="/static/img/jw_logo.png" style="height:42px"> Adminer — PPAM</div>
+   <div class="header">
+    <span class="title">adminer – PPAM</span>
+    <div class="header-actions">
+        <a href="/ppamtools" class="btn ghost">Volver al Panel</a>
+        <a href="/logout" class="btn alt">Logout</a>
+    </div>
+</div>
+
     <div class="cards">
       {% for t in tables %}
         <a href="{{ url_for('adminer.table_view', table=t) }}"><div class="card">{{ t.replace('_',' ').title() }}</div></a>
@@ -1413,9 +1483,12 @@ def table_delete(table):
         return redirect(url_for("adminer.index"))
 
     return render_template_string(DELETE_TABLE_TEMPLATE, table=table)
-
-
-
+# ------------------ Proteger todo el archivo ----------------------------------
+def protect_adminer(app):
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint.startswith("apiapp."):
+            view = app.view_functions[rule.endpoint]
+            app.view_functions[rule.endpoint] = login_required(admin_required(view))
 # ------------------ END ------------------
 # Note: register blueprint in your flask_app: app.register_blueprint(adminer_bp)
 # Example:

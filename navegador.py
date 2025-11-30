@@ -15,6 +15,8 @@ from flask import (
     render_template_string, send_file, abort, url_for
 )
 from werkzeug.utils import secure_filename
+from flask_login import login_required, current_user
+
 
 # --- Config ---
 MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200MB por archivo aprox (ajustable)
@@ -22,10 +24,23 @@ MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200MB por archivo aprox (ajustable)
 navegador_bp = Blueprint("navegador_full", __name__, url_prefix="/navegador")
 # ----- usar API Pythonanywhere ------------------------------------------------
 PA_USERNAME = "ppamappcaba"
-PA_API_TOKEN = '97f429626ebf2be6af4721cc37eafed15bbee5f8'
 API_TOKEN = os.getenv("PA_API_TOKEN")  # Mejor guardarlo en variable de entorno
 WEBAPP_DOMAIN = "ppamappcaba.pythonanywhere.com"
+# -------- login admin ----------------------------------------------------------
+def admin_required(func):
+    from functools import wraps
 
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login", next=request.url))
+
+        if getattr(current_user, "rol", None) != "Admin":
+            abort(403, description="No tenés permisos para acceder a esta sección.")
+
+        return func(*args, **kwargs)
+    return wrapper
+# -------- Fin Login ------------------------------------------------------------
 @navegador_bp.route("/reload_webapp", methods=["POST"])
 def reload_webapp():
     url = f"https://www.pythonanywhere.com/api/v0/user/{PA_USERNAME}/webapps/{WEBAPP_DOMAIN}/reload/"
@@ -202,8 +217,12 @@ body.dark-mode a.btn {
    style="font-size:14px; padding:6px 12px; display:inline-flex; align-items:center; gap:6px;">
     <i class="bi bi-arrow-repeat"></i>
     Reload WebApp
-</a>
-
+</a><a href="/ppamtools" class="btn" style="text-decoration:none; display:flex; align-items:center;">
+    Panel
+  </a>
+<a href="/logout" class="btn" style="text-decoration:none; display:flex; align-items:center;">
+    Salir
+  </a>
     </div>
   </div>
 
@@ -564,7 +583,14 @@ window.addEventListener('load', init);
 
 # --- API endpoints ---
 @navegador_bp.route("/", methods=["GET"])
+@login_required
+@admin_required
 def index():
+    if not API_TOKEN or not PA_USERNAME:
+        return render_template_string(INDEX_TEMPLATE.replace(
+            "No logs yet",
+            "⚠️ Set PA_API_TOKEN and PA_USERNAME..."
+        ))
     cwd = request.args.get('p', '').strip('/')
     return render_template_string(TEMPLATE, cwd=cwd, root_display=get_root(), max_upload_size=MAX_UPLOAD_SIZE)
 
@@ -797,3 +823,9 @@ def api_download_list():
                 zf.write(abs_item, arcname)
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name="download_selection.zip", mimetype="application/zip")
+# ---- Protección ----
+def protect_navegador(app):
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint.startswith("apiapp."):
+            view = app.view_functions[rule.endpoint]
+            app.view_functions[rule.endpoint] = login_required(admin_required(view))
