@@ -30,6 +30,7 @@ from BotAsignador import bot_api, BotAsignador
 from planificacion import planificacion_bp
 from adminer import adminer_bp
 from navegador import navegador_bp
+from apiapp import apiapp_bp
 
 # -------------------------------------------
 # Singletons de extensiones
@@ -56,6 +57,7 @@ app.register_blueprint(bot_api)
 app.register_blueprint(planificacion_bp)
 app.register_blueprint(adminer_bp, url_prefix="/adminer")
 app.register_blueprint(navegador_bp, url_prefix="/navegador")
+app.register_blueprint(apiapp_bp)
 if __name__ == "__main__":
     app.run(debug=True)
 # --- Registro de Blueprints ---
