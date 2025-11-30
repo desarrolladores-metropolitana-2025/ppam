@@ -9,6 +9,7 @@ ApiApp: pequeño panel en un solo archivo para usar la API de PythonAnywhere.
 import os
 import requests
 import time
+import subprocess
 from flask import Blueprint, current_app, request, jsonify, render_template_string
 
 apiapp_bp = Blueprint("apiapp", __name__, url_prefix="/apiapp")
@@ -163,6 +164,28 @@ def api_consoles():
             return jsonify({"ok": False, "status": resp.status_code, "body": resp.text}), 500
     except Exception:
         return jsonify({"ok": False, "body": resp.text}), 500
+# ------ LISTAR TAREAS PROGRAMADAS ------
+@apiapp_bp.route("/admin/tasks")
+def admin_tasks():
+    # Si usás cron del sistema, reemplazá por tu método
+    try:
+        result = subprocess.check_output(["crontab", "-l"], text=True)
+        tasks = result.split("\n")
+    except Exception as e:
+        tasks = [f"Error al obtener tareas: {e}"]
+
+    #return render_template("tasks.html", tasks=tasks)
+    return render_template_string(INDEX_TEMPLATE, tasks=tasks)
+
+# ------ EJECUTAR UNA TAREA PROGRAMADA ------
+@apiapp_bp.route("/admin/run_task")
+def run_task():
+    try:
+        # Esto es un ejemplo: reemplazá por tu comando real
+        subprocess.run(["python3", "/home/ppamappcaba/tarea_programada.py"])
+        return jsonify({"status": "ok", "message": "Tarea ejecutada correctamente"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 
 # ---- Frontend (single-file templates + JS) ----
@@ -199,6 +222,10 @@ INDEX_TEMPLATE = r"""
     input[type=text], select {padding:8px;border-radius:8px;border:1px solid #e6eef5;width:100%}
     .ok{color:var(--success)}
     .err{color:var(--danger)}
+    .card-link-clean { text-decoration: none !important; color: inherit !important; }
+    /* Para que el card entero sea clickeable */
+    .card-btn { cursor: pointer; transition: transform 0.1s ease, box-shadow 0.2s ease;  min-height: 130px; }
+    .card-btn:hover { transform: translateY(-3px); box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15); }
     .spinner{display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid rgba(0,0,0,0.1);border-top-color:var(--accent);animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
     @media (max-width:640px){ header{flex-direction:column;align-items:flex-start} }
@@ -263,8 +290,19 @@ INDEX_TEMPLATE = r"""
         </div>
         <pre id="raw-output" class="small" style="margin-top:10px;height:220px;overflow:auto">Nada por ahora</pre>
       </div>
-    </div>
-
+       <!-- CARD: Listar tareas programadas -->
+<div class="card shadow-sm p-3 mb-4 rounded-4">
+    <h3 class="fw-bold mb-2">⚙️ Ejecutar tarea programada</h3>
+    <p>Corre inmediatamente una tarea programada.</p>
+    <a href="/apiapp/admin/run_task" class="btn btn-primary w-100 mt-2">Ejecutar ahora</a>
+</div>
+<!-- CARD: Listar tareas programadas -->
+<div class="card shadow-sm p-3 mb-4 rounded-4">
+    <h3 class="fw-bold mb-2">📄 Listar tareas programadas</h3>
+    <p>Lista tareas programadas.</p>
+    <a href="/apiapp/admin/tasks" class="btn btn-primary w-100 mt-2">Listar ahora</a>
+</div>
+ </div>
     <footer>Equipo de desarrollo PPAM 2025 · ©</footer>
   </div>
 
@@ -358,6 +396,33 @@ el("btn-copy-raw").onclick = copyRaw;
 el("btn-clear-log").onclick = ()=>{ el("raw-output").innerText = ""; lastResponse = null; }
 
 </script>
+</body>
+</html>
+"""
+#pagina auxiliar
+TASK_TEMPLATE = r"""
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Tareas Programadas</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+
+<body class="bg-light p-4">
+    <div class="container">
+        <h1 class="mb-4">🗂️ Tareas Programadas</h1>
+
+        <div class="card shadow-sm p-3 rounded-4">
+            <ul class="list-group">
+                {% for t in tasks %}
+                    <li class="list-group-item">{{ t }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <a href="/" class="btn btn-secondary mt-4">Volver</a>
+    </div>
 </body>
 </html>
 """
