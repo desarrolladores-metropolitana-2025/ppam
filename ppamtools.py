@@ -3,10 +3,13 @@
 # 30/11/2025
 import os
 import json
-import time
+import time 
 import threading
 import random
+import re
 import difflib
+import psutil
+from collections import deque, defaultdict
 from datetime import datetime, timedelta
 from flask import (
     Blueprint,
@@ -21,7 +24,7 @@ from flask import (
 from flask_login import login_required, current_user
 from extensiones import db
 from modelos import Publicador, Turno, SolicitudTurno
-import psutil
+
 
 # Carpeta para datos simples (notificaciones, chat, logs)
 BASE_DIR = os.path.dirname(__file__)
@@ -33,37 +36,32 @@ NOTIF_FILE = os.path.join(DATA_DIR, "notificaciones.json")
 CHAT_FILE = os.path.join(DATA_DIR, "chat.json")
 LOG_FILE = os.path.join(DATA_DIR, "ppamtools.log")
 # --- Lock para escrituras seguras en CHAT_FILE ---
-CHAT_LOCK = threading.Lock()
+# Configurables
+BOT_NAME = "PPAM-BOT"
+MAX_CONTEXT = 6                   # mensajes previos a guardar por usuario
+MIN_REPLY_DELAY = 0.6             # mínimo "typing" delay
+MAX_REPLY_DELAY = 2.2             # máximo "typing" delay
+USER_THROTTLE_SECONDS = 1.0       # evitar respuestas muy seguidas por usuario
+CHAT_LOCK = threading.Lock()      # usar el mismo lock que ya tenías
 
-# --- Pequeña memoria en memoria (contexto por usuario), no persistente ---
-BOT_CONTEXT = {}  # clave: usuario -> {"last_messages": [...], "last_reply": ts}
+# Memoria en RAM (no persistente): contexto y último reply time
+BOT_CONTEXT = defaultdict(lambda: deque(maxlen=MAX_CONTEXT))
+LAST_REPLY_AT = defaultdict(lambda: 0.0)
 
-# --- Diccionarios de sinónimos / patrones simples ---
-INTENTS = {
-    "greeting": ["hola", "buenos", "buenas", "saludos", "hey", "holaa"],
-    "thanks": ["gracias", "graciass", "muchas gracias", "grx"],
-    "help": ["ayuda", "help", "soporte", "cómo hago", "como hago", "qué hago"],
-    "turno": ["turno", "turnos", "asignación", "asignaciones"],
-    "publicadores": ["publicadores", "punlicadores", "publicador", "usuarios"],
-    "pendientes": ["pendiente", "pendientes", "solicitudes", "pendencias"],
-    "actividad": ["actividad", "hoy", "semana"],
-    "estado": ["cpu", "memoria", "uptime", "estado", "servidor"],
-    "notificaciones": ["notifix", "notifica", "notificaciones", "notif", "notif."],
+# Sinónimos y pequeñas plantillas
+COMMANDS = {
+    "/ayuda": "Comandos: /ayuda, /hoy, /publicadores, /pendientes, /actividad, /estado, /notif, /info <usuario>",
 }
 
-# respuestas tipo "humanas" con variaciones
-TEMPLATES = {
-    "greeting": ["¡Hola! ¿Qué tal?", "Hola 👋, ¿en qué puedo ayudarte?", "¡Buenas! ¿Cómo te va?"],
-    "thanks": ["¡De nada!", "Con gusto 😊", "A la orden."],
-    "no_understand": [
-        "Perdón, no entendí bien. Podés escribir /ayuda para los comandos.",
-        "Mmm, no estoy seguro — probá con /ayuda.",
-        "No lo pillé. Si querés, escribí /ayuda."
-    ],
-    "help": [
-        "Puedo darte información rápida del sistema. Escribí /ayuda para ver los comandos.",
-        "Si necesitás algo, intentá con: /hoy, /publicadores, /pendientes, /estado, /notif."
-    ],
+SYNONYMS = {
+    "turno": ["turno", "turnos", "asignacion", "asignaciones", "asignar"],
+    "actividad": ["actividad", "actividad semanal", "actividad semana", "semana", "hoy"],
+    "publicadores": ["publicador", "publicadores", "usuarios", "cuantos publicadores"],
+    "pendientes": ["pendiente", "pendientes", "solicitudes", "por resolver"],
+    "estado": ["estado", "cpu", "memoria", "uptime", "servidor"],
+    "notificaciones": ["notif", "notificacion", "notificaciones", "mensaje"],
+    "saludo": ["hola", "buenas", "buen día", "buenas tardes", "buenas noches", "hey"],
+    "agradecer": ["gracias", "grx", "muchas gracias"],
 }
 
 
@@ -83,170 +81,172 @@ ppamtools_bp = Blueprint(
     template_folder="templates/ppamtools",
     static_folder="static/ppamtools",
 )
-# --------------------- Bot V2 --------------------
-# --- Función util: buscar intención por token fuzzy/simple ---
-def detect_intent(text):
-    t = text.lower()
-    tokens = [tok for tok in difflib.SequenceMatcher().get_matching_blocks()]  # placeholder no usado
-    # simple check: look for keywords
-    scores = {}
-    for intent, keywords in INTENTS.items():
-        for kw in keywords:
-            if kw in t:
-                scores[intent] = scores.get(intent, 0) + 1
-    # fallback: fuzzy match words
-    if not scores:
-        words = [w for w in t.split() if len(w) > 2]
-        for w in words:
-            for intent, keywords in INTENTS.items():
-                m = difflib.get_close_matches(w, keywords, n=1, cutoff=0.8)
-                if m:
-                    scores[intent] = scores.get(intent, 0) + 0.5
-    if not scores:
-        return None
-    # return intent with highest score
-    return max(scores.items(), key=lambda x: x[1])[0]
 
-# --- Bot "cerebro" que genera texto (usa DB/models) ---
-def ppam_bot_v2_generate(user, texto):
+APP_OBJECT = {}   # será un contenedor mutado desde afuera
+# se asignará cuando se registre el blueprint
+
+# ----------------------- PPAM-BOT v4 -----------------------
+# Bot humano, reglas + parsing simple, fuzzy, contexto pequeño,
+# seguro para usar con threads (usa current_app.app_context()).
+# --------------------- Bot V2 --------------------
+# small helper functions
+def _normalize(text):
+    # lower, remove accents lightly, strip punctuation edges
+    t = text.lower().strip()
+    # remove repeated spaces
+    t = re.sub(r'\s+', ' ', t)
+    # remove accents (very simple)
+    t = (t.replace('á','a').replace('é','e').replace('í','i')
+           .replace('ó','o').replace('ú','u').replace('ñ','n'))
+    return t
+
+def _contains_keyword(text, keylist):
+    t = _normalize(text)
+    for k in keylist:
+        if k in t:
+            return True
+    return False
+
+def _fuzzy_match_word(word, candidates, cutoff=0.75):
+    # devuelve True si `word` está cercano a alguno de candidates
+    m = difflib.get_close_matches(word, candidates, n=1, cutoff=cutoff)
+    return bool(m)
+
+def _find_intent_by_keywords(text):
+    t = _normalize(text)
+    # direct command: exact match first
+    if t in COMMANDS:
+        return ("command", t)
+    # check synonyms
+    for intent, kws in SYNONYMS.items():
+        if _contains_keyword(t, kws):
+            return (intent, None)
+    # try token fuzzy match
+    words = [w for w in re.split(r'\W+', t) if w]
+    for w in words:
+        for intent, kws in SYNONYMS.items():
+            if _fuzzy_match_word(w, kws, cutoff=0.8):
+                return (intent, None)
+    return (None, None)
+
+# Core generator: devuelve texto (string) o None
+def ppam_bot_v4_generate(user, texto):
     """
-    Devuelve una respuesta string o None.
-    Accede a modelos: Publicador, Turno, SolicitudTurno, NOTIF_FILE y psutil.
+    Accede a modelos DB (Publicador, Turno, SolicitudTurno) y a NOTIF_FILE.
+    Debe ejecutarse DENTRO de app_context si usa DB (threads).
     """
     if not texto:
         return None
 
-    intent = detect_intent(texto)
+    t = _normalize(texto)
 
-    # respuestas por intent (prioridad)
-    try:
-        if intent == "greeting":
-            return random.choice(TEMPLATES["greeting"])
-
-        if intent == "thanks":
-            return random.choice(TEMPLATES["thanks"])
-
-        if intent == "help":
-            return random.choice(TEMPLATES["help"])
-
-        if intent == "publicadores":
-            try:
-                n = Publicador.query.count()
-                return random.choice([
-                    f"Ahora mismo hay {n} publicadores registrados.",
-                    f"Tenemos {n} publicadores en el sistema."
-                ])
-            except Exception:
-                return "No pude leer la cantidad de publicadores."
-
-        if intent == "pendientes":
-            try:
-                n = SolicitudTurno.query.filter_by(estado="Pendiente").count()
-                return f"Hay {n} solicitudes pendientes."
-            except Exception:
-                return "No pude leer las solicitudes pendientes."
-
-        if intent == "turno":
+    # 1) comandos directos con slash
+    if t.startswith("/"):
+        parts = t.split()
+        cmd = parts[0]
+        arg = " ".join(parts[1:]) if len(parts) > 1 else ""
+        # comandos simples
+        if cmd == "/ayuda" or cmd == "/help":
+            return COMMANDS["/ayuda"]
+        if cmd == "/hoy":
             try:
                 hoy = datetime.now().date()
                 n = Turno.query.filter(Turno.fecha == hoy).count()
-                return f"Asignaciones para hoy ({hoy}): {n}."
+                return f"Asig. hoy ({hoy}): {n}"
+            except Exception as e:
+                current_app.logger.exception("bot /hoy error")
+                return "No pude obtener las asignaciones del día."
+        if cmd == "/publicadores":
+            try:
+                n = Publicador.query.count()
+                return f"Publicadores: {n}"
             except Exception:
-                return "Error consultando asignaciones del día."
+                current_app.logger.exception("bot /publicadores error")
+                return "No pude leer la cantidad de publicadores."
+        if cmd == "/pendientes":
+            try:
+                ahora = datetime.now().time()
+                pendientes = (
+                    SolicitudTurno.query
+                    .filter(SolicitudTurno.hora_inicio >= ahora)
+                    .order_by(SolicitudTurno.hora_inicio)
+                    .limit(10)
+                    .all()
+                )
 
-        if intent == "actividad":
+                if not pendientes:
+                    return "No hay solicitudes pendientes para lo que queda del día."
+
+                filas = [
+                    f"{p.hora_inicio.strftime('%H:%M')} — ID {p.id}"
+                    for p in pendientes
+                ]
+
+                return "⏳ Pendientes de hoy:\n" + "\n".join(filas)
+
+            except Exception as e:
+                print("ERROR /pendientes:", e)
+                return "Error al consultar solicitudes pendientes."
+        if cmd == "/actividad":
             try:
                 hoy = datetime.now().date()
                 partes = []
-                for i in range(6, -1, -1):  # últimos 7 días
+                for i in range(6, -1, -1):
                     dia = hoy - timedelta(days=i)
                     q = Turno.query.filter(Turno.fecha == dia).count()
                     partes.append(f"{dia.strftime('%d/%m')}: {q}")
                 return "Actividad (7d): " + " | ".join(partes)
             except Exception:
+                current_app.logger.exception("bot /actividad error")
                 return "No pude obtener la actividad semanal."
-
-        if intent == "estado":
+        if cmd == "/estado":
             try:
                 cpu = psutil.cpu_percent(interval=0.5)
                 mem = psutil.virtual_memory().percent
                 uptime_h = round((datetime.now().timestamp() - psutil.boot_time()) / 3600, 1)
-                return f"Servidor — CPU: {cpu}% | Mem: {mem}% | Uptime: {uptime_h}h"
+                return f"Estado — CPU: {cpu}% | Mem: {mem}% | Uptime: {uptime_h}h"
             except Exception:
+                current_app.logger.exception("bot /estado error")
                 return "No pude obtener el estado del servidor."
-
-        if intent == "notificaciones":
+        if cmd == "/notif":
             try:
-                n = _read_json(NOTIF_FILE)[-5:]
-                if not n:
+                notifs = _read_json(NOTIF_FILE)[-5:]
+                if not notifs:
                     return "No hay notificaciones recientes."
-                return "Últimas: " + " // ".join(x.get("texto","(sin texto)") for x in n)
+                return "Últimas: " + " // ".join(n.get("texto","(sin texto)") for n in notifs)
             except Exception:
+                current_app.logger.exception("bot /notif error")
                 return "No pude leer las notificaciones."
-    except Exception as e:
-        # no queremos que el bot cause 500s
-        current_app.logger.exception("Error en ppam_bot_v2_generate")
-        return None
+        if cmd == "/info" and arg:
+            # ejemplo: /info admin Buscar info de usuario (simple)
+            try:
+                userq = Publicador.query.filter_by(usuario=arg).first()
+                if not userq:
+                    return f"No encontré usuario '{arg}'."
+                # ajusta campos según tu modelo
+                return f"Usuario {userq.usuario} — rol: {getattr(userq,'rol','-')}"
+            except Exception:
+                current_app.logger.exception("bot /info error")
+                return "Error consultando usuario."
+        # desconocido
+        return "Comando no reconocido. Escribí /ayuda."
 
-    # Si no hay intención clara, realizar respuestas por keyword o fallback
-    t = texto.lower()
-    if "hola" in t:
-        return random.choice(TEMPLATES["greeting"])
-    if "gracias" in t:
-        return random.choice(TEMPLATES["thanks"])
+    # 2) Intent detection por keywords / fuzzy
+    intent, _ = _find_intent_by_keywords(texto)
 
-    # fallback: 20% chance to give a helpful hint
-    if random.random() < 0.2:
-        return "Lo siento, no entendí bien — probá escribir /ayuda para ver comandos."
+    # SALUDOS
+    if intent == "saludo":
+        return random.choice(["Hola 👋", "¡Hola! ¿Cómo puedo ayudar?", "Buenas — ¿qué necesitás?"])
 
-    return None
-# ======================================================
-# PPAM-BOT v3 — Unificado, humano, con COMANDOS y fuzzy
-# ======================================================
+    if intent == "agradecer":
+        return random.choice(["¡De nada!", "Con gusto 😊", "A la orden."])
 
-COMMANDS = {
-    "/ayuda": "Comandos disponibles:\n"
-              "• /ayuda – muestra este mensaje\n"
-              "• /hoy – asignaciones del día\n"
-              "• /pendientes – solicitudes sin resolver\n"
-              "• /publicadores – cantidad total\n"
-              "• /actividad – actividad semanal\n"
-              "• /estado – CPU, RAM y uptime del servidor\n"
-              "• /notif – últimas notificaciones",
-}
+    if intent == "turno":
+        # sugerir /hoy o /actividad
+        return "¿Querés ver asignaciones? Probá: /hoy o /actividad."
 
-def ppam_bot_v3(user, texto):
-    t = texto.lower().strip()
-
-    # -----------------------------
-    # COMANDOS DIRECTOS
-    # -----------------------------
-    if t in COMMANDS:
-        return COMMANDS[t]
-
-    if t == "/publicadores":
-        try:
-            n = Publicador.query.count()
-            return f"Actualmente hay {n} publicadores registrados."
-        except:
-            return "No pude obtener la lista de publicadores."
-
-    if t == "/pendientes":
-        try:
-            n = SolicitudTurno.query.filter_by(estado="Pendiente").count()
-            return f"Solicitudes pendientes: {n}."
-        except:
-            return "Error al consultar solicitudes pendientes."
-
-    if t == "/hoy":
-        try:
-            hoy = datetime.now().date()
-            n = Turno.query.filter(Turno.fecha == hoy).count()
-            return f"Asignaciones del día ({hoy}): {n}"
-        except:
-            return "No pude obtener las asignaciones del día."
-
-    if t == "/actividad":
+    if intent == "actividad":
+        # intentar devolver resumen (misma lógica que /actividad)
         try:
             hoy = datetime.now().date()
             partes = []
@@ -254,220 +254,124 @@ def ppam_bot_v3(user, texto):
                 dia = hoy - timedelta(days=i)
                 q = Turno.query.filter(Turno.fecha == dia).count()
                 partes.append(f"{dia.strftime('%d/%m')}: {q}")
-            return "Actividad (7 días):\n" + "\n".join(partes)
-        except:
+            return "Actividad (7d): " + " | ".join(partes)
+        except Exception:
+            current_app.logger.exception("bot actividad error")
             return "No pude obtener la actividad semanal."
 
-    if t == "/estado":
+    if intent == "publicadores":
         try:
-            cpu = psutil.cpu_percent()
+            n = Publicador.query.count()
+            return f"Ahora hay {n} publicadores."
+        except Exception:
+            current_app.logger.exception("bot publicadores error")
+            return "No pude leer la cantidad de publicadores."
+
+    if intent == "pendientes":
+        try:
+            n = SolicitudTurno.query.filter_by(estado="Pendiente").count()
+            return f"Solicitudes pendientes: {n}"
+        except Exception:
+            current_app.logger.exception("bot pendientes error")
+            return "No pude consultar las solicitudes pendientes."
+
+    if intent == "estado":
+        try:
+            cpu = psutil.cpu_percent(interval=0.3)
             mem = psutil.virtual_memory().percent
             uptime_h = round((datetime.now().timestamp() - psutil.boot_time()) / 3600, 1)
-            return f"Estado del servidor:\nCPU: {cpu}%\nMemoria: {mem}%\nUptime: {uptime_h} hs"
-        except:
+            return f"Servidor — CPU: {cpu}% | Mem: {mem}% | Uptime: {uptime_h}h"
+        except Exception:
+            current_app.logger.exception("bot estado error")
             return "No pude obtener el estado del servidor."
 
-    if t == "/notif":
+    if intent == "notificaciones":
         try:
             notifs = _read_json(NOTIF_FILE)[-5:]
             if not notifs:
                 return "No hay notificaciones recientes."
-            return "Últimas notificaciones:\n" + "\n".join(f"- {n['texto']}" for n in notifs)
-        except:
+            return "Últimas: " + " // ".join(n.get("texto","(sin texto)") for n in notifs)
+        except Exception:
+            current_app.logger.exception("bot notif error")
             return "No pude leer las notificaciones."
 
-    # -----------------------------
-    # RESPUESTAS HUMANAS
-    # -----------------------------
-    if "hola" in t:
-        return random.choice(["Hola 👋", "¡Hola! ¿Qué tal?", "¡Buenas! ¿En qué te ayudo?"])
+    # 3) fallback humano y sugerencias
+    # si el texto parece pregunta corta:
+    if len(texto.split()) <= 4 and texto.endswith("?"):
+        return "Buena pregunta — probá con /ayuda o escribí más detalles."
 
-    if "gracias" in t:
-        return random.choice(["¡De nada!", "Cuando quieras 😊", "A la orden."])
-
-    if "ayuda" in t:
-        return "Podés escribir /ayuda para ver lo que puedo hacer."
-
-    if "turno" in t:
-        return "Para turnos podés usar /hoy o /actividad."
-
-    # -----------------------------
-    # Fallback
-    # -----------------------------
-    return random.choice([
-        "No entendí bien 🤔 — probá /ayuda",
-        "¿Podés repetirlo? También podés usar /ayuda.",
-        "No estoy seguro de eso. Probá /ayuda."
-    ])
-
-# --- Función para responder en background (no bloquear request) ---
+    # respuestas amigables por defecto (varias frases humanas)
+    fallbacks = [
+        "No entendí del todo 🤔 — intentá con /ayuda.",
+        "No lo pillé. Podés usar /hoy, /publicadores o /pendientes.",
+        "Lo siento, no estoy seguro. Escribí /ayuda para ver comandos."
+    ]
+    return random.choice(fallbacks)
+# --- respond_in_background corregida para V4 ---
 def respond_in_background(user, trigger_text, delay=0.8):
     """
-    Añade la respuesta del bot tras `delay` segundos en un hilo.
-    Usa CHAT_LOCK para evitar concurrencia en el archivo.
+    Ejecuta la respuesta del bot en un thread seguro para PythonAnywhere.
+    Usa APP_OBJECT en lugar de current_app.
     """
     def worker():
+        print("BOT THREAD STARTED", user, trigger_text)
+        print(">>> APP_OBJECT asignado:", APP_OBJECT["app"])
         try:
-            # breve 'typing' delay proporcional a la longitud
-            simulated = min(2.5, delay + len(trigger_text) * 0.02)
-            time.sleep(simulated)
-
-            respuesta = ppam_bot_v3(user, trigger_text)
-            if not respuesta:
+            if "app" not in APP_OBJECT:
+                print("BOT: APP_OBJECT sigue sin app")
                 return
 
-            # Escribir en archivo con lock
-            with CHAT_LOCK:
-                msgs = _read_json(CHAT_FILE)
-                last_id = (msgs[-1].get("id",0) if msgs else 0) + 1
-                bot_msg = {
-                    "id": last_id,
-                    "usuario": "PPAM-BOT",
-                    "texto": respuesta,
-                    "ts": datetime.now().isoformat()
-                }
-                msgs.append(bot_msg)
-                msgs = msgs[-1000:]
-                _write_json(CHAT_FILE, msgs)
-                # opcional: también agregar log
-                _append_log(f"PPAM-BOT respondió a {user}: {respuesta}")
-        except Exception:
-            current_app.logger.exception("Error en hilo de respuesta del bot")
+            # throttle
+            now = time.time()
+            last = LAST_REPLY_AT.get(user, 0)
+            if now - last < USER_THROTTLE_SECONDS:
+                return
+
+            # typing delay
+            simulated = min(MAX_REPLY_DELAY, MIN_REPLY_DELAY + len(trigger_text) * 0.02)
+            time.sleep(simulated)
+
+            # Usamos app.app_context() — NO current_app
+            
+            flask_app = APP_OBJECT["app"]
+            with flask_app.app_context():
+            # ... aquí sigue tu código 
+            # with APP_OBJECT.app_context():
+                respuesta = ppam_bot_v4_generate(user, trigger_text)
+                if not respuesta:
+                    return
+
+                # escribir mensaje del bot
+                with CHAT_LOCK:
+                    msgs = _read_json(CHAT_FILE)
+                    new_id = (msgs[-1].get("id", 0) if msgs else 0) + 1
+                    msgs.append({
+                        "id": new_id,
+                        "usuario": BOT_NAME,
+                        "texto": respuesta,
+                        "ts": datetime.now().isoformat()
+                    })
+                    msgs = msgs[-1000:]
+                    _write_json(CHAT_FILE, msgs)
+                    _append_log(f"{BOT_NAME} respondió a {user}: {respuesta}")
+
+                LAST_REPLY_AT[user] = time.time()
+
+        except Exception as e:
+            print("ERROR en hilo BOT:", e)
 
     t = threading.Thread(target=worker, daemon=True)
     t.start()
+
+
+# ---------------------------------------------------------
+# Fin PPAM-BOT v4
+# ---------------------------------------------------------
 # -------------------- Filtros --------------------
 @ppamtools_bp.app_template_filter("getattr")
 def jinja_getattr(obj, name, default=None):
     return getattr(obj, name, default)
 # -------------------- Helpers --------------------
-# -- nace Bot (chatito GPT jajaja ) -----------
-def bot_respuesta(texto):
-    t = texto.lower().strip()
-
-    # respuestas simples
-    if t == "hola":
-        return "¡Hola! ¿En qué puedo ayudarte?"
-
-    if "ayuda" in t:
-        return "Podés contactarte con soporte, ver documentación o describir el error."
-
-    if "horario" in t:
-        return "El horario de atención es de 9 a 18 hs."
-
-    if "turno" in t:
-        return "Para gestionar turnos, usá el menú 'Turnos' del panel."
-
-    # comando ejemplo
-    if t.startswith("/info"):
-        return "PPAMTools — Sistema administrativo versión 1.0"
-
-    # comando secreto /random
-    if t.startswith("/random"):
-        import random
-        return f"Número aleatorio: {random.randint(1,100)}"
-
-    # por defecto: no responder
-    return None
-#--  Bot version V1.1 ----------------------------------
-# ======================================================
-# PPAM-BOT v1 — Bot integrado al sistema PPAM
-# Soporta comandos, preguntas y datos reales
-# ======================================================
-def ppam_bot_respuesta(texto):
-
-    if not texto:
-        return None
-
-    t = texto.lower().strip()
-
-    # -------------------------------
-    # COMANDOS DIRECTOS
-    # -------------------------------
-    if t == "/ayuda":
-        return (
-            "Comandos disponibles:\n"
-            "• /ayuda – muestra este mensaje\n"
-            "• /hoy – asignaciones del día\n"
-            "• /pendientes – solicitudes sin resolver\n"
-            "• /publicadores – cantidad total\n"
-            "• /actividad – actividad semanal\n"
-            "• /estado – CPU, RAM y uptime del servidor\n"
-            "• /notif – últimas notificaciones"
-        )
-
-    if t == "/publicadores":
-        try:
-            n = Publicador.query.count()
-            return f"Actualmente hay {n} publicadores registrados."
-        except:
-            return "No pude obtener la lista de publicadores."
-
-    if t == "/pendientes":
-        try:
-            n = SolicitudTurno.query.filter_by(estado="Pendiente").count()
-            return f"Solicitudes pendientes: {n}"
-        except:
-            return "Error al consultar solicitudes pendientes."
-
-    if t == "/hoy":
-        try:
-            hoy = datetime.now().date()
-            n = Turno.query.filter(Turno.fecha == hoy).count()
-            return f"Asignaciones del día ({hoy}): {n}"
-        except:
-            return "No pude obtener las asignaciones del día."
-
-    if t == "/notif":
-        try:
-            notifs = _read_json(NOTIF_FILE)[-5:]
-            if not notifs:
-                return "No hay notificaciones recientes."
-            return "Últimas notificaciones:\n" + "\n".join(f"- {n['texto']}" for n in notifs)
-        except:
-            return "No pude leer las notificaciones."
-
-    if t == "/estado":
-        try:
-            cpu = psutil.cpu_percent()
-            mem = psutil.virtual_memory().percent
-            uptime = round(datetime.now().timestamp() - psutil.boot_time()) // 3600
-            return f"Estado del servidor:\nCPU: {cpu}%\nMemoria: {mem}%\nUptime: {uptime} hs"
-        except:
-            return "No pude obtener el estado del servidor."
-
-    if t == "/actividad":
-        try:
-            hoy = datetime.now().date()
-            texto = "Actividad semanal:\n"
-            for i in range(7):
-                dia = hoy - timedelta(days=i)
-                q = Turno.query.filter(Turno.fecha == dia).count()
-                texto += f"- {dia.strftime('%d/%m')}: {q}\n"
-            return texto
-        except:
-            return "Error obteniendo actividad semanal."
-
-    # -------------------------------
-    # RESPUESTAS NORMALES (palabras clave)
-    # -------------------------------
-    if "hola" in t:
-        return "¡Hola! ¿En qué puedo ayudarte?"
-
-    if "turno" in t:
-        return "Si necesitás ver turnos o asignaciones, probá usar: /hoy o /actividad."
-
-    if "gracias" in t:
-        return "¡De nada!"
-
-    if "ayuda" in t:
-        return "Puedo ayudarte con datos de turnos, notificaciones, actividad o estado del servidor. Escribí /ayuda."
-
-    # -------------------------------
-    # Si no entendí
-    # -------------------------------
-    return None
-
 # ---------------  Leer JASON --------------------------------
 
 def _read_json(path):
@@ -648,7 +552,6 @@ def logs_limpiar():
     except Exception:
         pass
     return jsonify({"ok": True})
-
 
 # -------------------- Archivos estáticos (si necesitás servir desde blueprint) --------------------
 @ppamtools_bp.route('/static/<path:filename>')

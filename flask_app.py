@@ -31,7 +31,7 @@ from planificacion import planificacion_bp
 from adminer import adminer_bp
 from navegador import navegador_bp
 from apiapp import apiapp_bp
-from ppamtools import ppamtools_bp
+from ppamtools import ppamtools_bp, APP_OBJECT
 from navegador import protect_navegador
 from apiapp import protect_apiapp
 from adminer import protect_adminer
@@ -50,6 +50,7 @@ NOMBRE_CUENTA = os.getenv("NOMBRE_CUENTA")
 PASSWORD_DB = os.getenv("PASSWORD_DB")
 INSTANCIA = os.getenv("INSTANCIA")
 SECRET_KEY = os.getenv("SECRET_KEY")
+DEV_USERS = {"admin", "Alberto", "Mario"}   # <-- poné acá los usuarios que son devs
 
 app = Flask(__name__)
 protect_navegador(app)
@@ -63,7 +64,8 @@ app.register_blueprint(planificacion_bp)
 app.register_blueprint(adminer_bp, url_prefix="/adminer")
 app.register_blueprint(navegador_bp, url_prefix="/navegador")
 app.register_blueprint(apiapp_bp)
-app.register_blueprint(ppamtools_bp)
+app.register_blueprint(ppamtools_bp, url_prefix="/ppamtools")
+APP_OBJECT["app"] = app
 if __name__ == "__main__":
     app.run(debug=True)
 # --- Registro de Blueprints ---
@@ -80,14 +82,14 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
 }
-
-
 db.init_app(app)
 login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message_category = "info"
-
-
+# -- context Processor ... ------------------
+@app.context_processor
+def inject_devlist():
+    return dict(DEV_USERS=DEV_USERS)
 # -------------------------------------------
 # LOGIN MANAGER
 # -------------------------------------------

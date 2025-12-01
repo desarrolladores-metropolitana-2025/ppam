@@ -199,9 +199,26 @@
         <div class="card-title mt-1 fw-bold" style="font-size: 1.1rem;">
             Planificador Manual y Bot Asignador
         </div>
+    </a>
+</div>
+{% if current_user.usuario in DEV_USERS %}
+<div class="col-12 col-md-6 col-lg-4">
+    <a href="/ppamtools"
+       class="card card-button text-center text-decoration-none shadow-sm p-3"
+       style="height: 90px; display: flex; flex-direction: row; justify-content: center; align-items: center; gap: 15px;"
+       data-bs-toggle="tooltip"
+       data-bs-placement="top"
+       title="Herramientas internas PPAM (solo desarrolladores)">
+       
+        <i class="bi bi-tools" style="font-size: 2rem; color: #0d6efd;"></i>
+
+        <div class="card-title mt-1 fw-bold" style="font-size: 1.1rem;">
+            PPAM Tools
+        </div>
 
     </a>
 </div>
+{% endif %}
 
 
 
