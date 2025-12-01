@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": 1,
+    "usuario": "admin",
+    "texto": "Qué pasa que esta lento el sistema?",
+    "ts": "2025-12-01T02:08:18.598865"
+  },
+  {
+    "id": 2,
+    "usuario": "admin",
+    "texto": "Qué pasa que esta lento el sistema?",
+    "ts": "2025-12-01T02:08:18.834345"
+  },
+  {
+    "id": 3,
+    "usuario": "admin",
+    "texto": "Qué pasa que esta lento el sistema?",
+    "ts": "2025-12-01T02:08:19.060947"
+  }
+]
