@@ -200,6 +200,105 @@ def ppam_bot_v2_generate(user, texto):
         return "Lo siento, no entendí bien — probá escribir /ayuda para ver comandos."
 
     return None
+# ======================================================
+# PPAM-BOT v3 — Unificado, humano, con COMANDOS y fuzzy
+# ======================================================
+
+COMMANDS = {
+    "/ayuda": "Comandos disponibles:\n"
+              "• /ayuda – muestra este mensaje\n"
+              "• /hoy – asignaciones del día\n"
+              "• /pendientes – solicitudes sin resolver\n"
+              "• /publicadores – cantidad total\n"
+              "• /actividad – actividad semanal\n"
+              "• /estado – CPU, RAM y uptime del servidor\n"
+              "• /notif – últimas notificaciones",
+}
+
+def ppam_bot_v3(user, texto):
+    t = texto.lower().strip()
+
+    # -----------------------------
+    # COMANDOS DIRECTOS
+    # -----------------------------
+    if t in COMMANDS:
+        return COMMANDS[t]
+
+    if t == "/publicadores":
+        try:
+            n = Publicador.query.count()
+            return f"Actualmente hay {n} publicadores registrados."
+        except:
+            return "No pude obtener la lista de publicadores."
+
+    if t == "/pendientes":
+        try:
+            n = SolicitudTurno.query.filter_by(estado="Pendiente").count()
+            return f"Solicitudes pendientes: {n}."
+        except:
+            return "Error al consultar solicitudes pendientes."
+
+    if t == "/hoy":
+        try:
+            hoy = datetime.now().date()
+            n = Turno.query.filter(Turno.fecha == hoy).count()
+            return f"Asignaciones del día ({hoy}): {n}"
+        except:
+            return "No pude obtener las asignaciones del día."
+
+    if t == "/actividad":
+        try:
+            hoy = datetime.now().date()
+            partes = []
+            for i in range(6, -1, -1):
+                dia = hoy - timedelta(days=i)
+                q = Turno.query.filter(Turno.fecha == dia).count()
+                partes.append(f"{dia.strftime('%d/%m')}: {q}")
+            return "Actividad (7 días):\n" + "\n".join(partes)
+        except:
+            return "No pude obtener la actividad semanal."
+
+    if t == "/estado":
+        try:
+            cpu = psutil.cpu_percent()
+            mem = psutil.virtual_memory().percent
+            uptime_h = round((datetime.now().timestamp() - psutil.boot_time()) / 3600, 1)
+            return f"Estado del servidor:\nCPU: {cpu}%\nMemoria: {mem}%\nUptime: {uptime_h} hs"
+        except:
+            return "No pude obtener el estado del servidor."
+
+    if t == "/notif":
+        try:
+            notifs = _read_json(NOTIF_FILE)[-5:]
+            if not notifs:
+                return "No hay notificaciones recientes."
+            return "Últimas notificaciones:\n" + "\n".join(f"- {n['texto']}" for n in notifs)
+        except:
+            return "No pude leer las notificaciones."
+
+    # -----------------------------
+    # RESPUESTAS HUMANAS
+    # -----------------------------
+    if "hola" in t:
+        return random.choice(["Hola 👋", "¡Hola! ¿Qué tal?", "¡Buenas! ¿En qué te ayudo?"])
+
+    if "gracias" in t:
+        return random.choice(["¡De nada!", "Cuando quieras 😊", "A la orden."])
+
+    if "ayuda" in t:
+        return "Podés escribir /ayuda para ver lo que puedo hacer."
+
+    if "turno" in t:
+        return "Para turnos podés usar /hoy o /actividad."
+
+    # -----------------------------
+    # Fallback
+    # -----------------------------
+    return random.choice([
+        "No entendí bien 🤔 — probá /ayuda",
+        "¿Podés repetirlo? También podés usar /ayuda.",
+        "No estoy seguro de eso. Probá /ayuda."
+    ])
 
 # --- Función para responder en background (no bloquear request) ---
 def respond_in_background(user, trigger_text, delay=0.8):
@@ -213,7 +312,7 @@ def respond_in_background(user, trigger_text, delay=0.8):
             simulated = min(2.5, delay + len(trigger_text) * 0.02)
             time.sleep(simulated)
 
-            respuesta = ppam_bot_v2_generate(user, trigger_text)
+            respuesta = ppam_bot_v3(user, trigger_text)
             if not respuesta:
                 return
 
@@ -511,27 +610,22 @@ def chat_enviar():
 
     # 1. Guardar mensaje del usuario
     msgs = _read_json(CHAT_FILE)
+    nuevo_id = (msgs[-1].get("id", 0) + 1) if msgs else 1
     nuevo = {
-        "id": (msgs[-1].get("id", 0) + 1) if msgs else 1,
+        "id": nuevo_id,
         "usuario": current_user.usuario,
         "texto": texto,
         "ts": datetime.now().isoformat()
     }
     msgs.append(nuevo)
-
-    # Mantener máximo 1000 mensajes
     msgs = msgs[-1000:]
-
     _write_json(CHAT_FILE, msgs)
 
-    # 2. Generar respuesta del BOT
-    # después de guardar 'nuevo' y _write_json(...)
-    # lanzar la respuesta en background:
+    # 2. BOT en background
     try:
         respond_in_background(current_user.usuario, texto)
     except Exception:
         current_app.logger.exception("No se pudo lanzar hilo del bot")
-
 
     return jsonify({"status": "ok"})
 # -------------------- LOGS --------------------
