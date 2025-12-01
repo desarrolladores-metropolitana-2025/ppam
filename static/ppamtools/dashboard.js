@@ -31,46 +31,90 @@ async function cargarWidgets(){
     document.getElementById('w_uptime').innerText = d.uptime;
   }catch(e){ console.warn(e) }
 }
-setInterval(cargarWidgets, 8000);
+setInterval(cargarWidgets, 15000);
 cargarWidgets();
 
-// ----------------- GRAFICO -----------------
+// =====================================================
+// GRAFICO (solo 1 Chart en memoria, nunca recreado)
+// =====================================================
+
+let graficoChart = null;
+
 async function grafico(){
   try{
     const res = await fetch('/ppamtools/api/activity');
+    if (!res.ok) return;
+
     const datos = await res.json();
     const ctx = document.getElementById('grafico_semanal');
     if (!ctx) return;
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: datos.map(x=>x.dia),
-        datasets: [{
-          label: 'Asignaciones',
-          data: datos.map(x=>x.valor),
-          borderWidth: 3,
-          tension: 0.3,
-          fill: false
-        }]
-      },
-      options: { plugins: { legend: { display:false } } }
-    });
-  }catch(e){ console.warn(e) }
-}
-grafico();
 
-// ----------------- NOTIFICACIONES (SSE con fallback polling) -----------------
+    const labels = datos.map(x => x.dia);
+    const valores = datos.map(x => x.valor);
+
+    if (!graficoChart) {
+      // Crear UNA sola instancia
+      graficoChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Asignaciones',
+            data: valores,
+            borderWidth: 3,
+            tension: 0.3,
+            fill: false
+          }]
+        },
+        options: {
+          animation: false,
+          plugins: { legend: { display:false } }
+        }
+      });
+    } else {
+      // Actualizar sin recrear
+      graficoChart.data.labels = labels;
+      graficoChart.data.datasets[0].data = valores;
+      graficoChart.update();
+    }
+
+  }catch(e){
+    console.warn("Error en gráfico:", e);
+  }
+}
+
+// actualizar gráfico cada 30 s (suficiente)
+grafico();
+setInterval(grafico, 30000);
+
+
+// ----------------- NOTIFICACIONES SOLO POLLING -----------------
+
 function mostrarNotificacion(msg){
   try{
     const cont = document.getElementById('notif-container');
     const div = document.createElement('div');
     div.className = 'notif';
-    if (typeof msg === 'string') div.innerText = msg; else div.innerText = (msg.texto || JSON.stringify(msg));
-    cont.appendChild(div);
-    setTimeout(()=> div.remove(), 7000);
-  }catch(e){ console.warn(e) }
-}
 
+    // Mostrar sólo el texto si existe
+    if (msg.texto) {
+      div.innerText = msg.texto;
+    } else {
+      div.innerText = JSON.stringify(msg);
+    }
+
+    cont.appendChild(div);
+
+    // que desaparezca a los 7s
+    setTimeout(()=> div.remove(), 7000);
+
+  }catch(e){
+    console.warn("Error mostrando notificación", e);
+  }
+}
+// ------ Modo NOTIFICACIONES: SOLO POLLING ------
+fallbackNoti();
+/*
 let useSSE = false;
 try{
   const sse = new EventSource('/ppamtools/notificaciones_stream');
@@ -80,17 +124,21 @@ try{
   sse.onerror = function(){ sse.close(); fallbackNoti(); }
   useSSE = true;
 }catch(e){ fallbackNoti(); }
-
+   */
 async function fallbackNoti(){
-  // polling every 5s
-  setInterval(async ()=>{
-    try{
+	setInterval(async () => {
+    try {
       const r = await fetch('/ppamtools/notificaciones_poll');
       const arr = await r.json();
-      arr.slice(-5).forEach(a=> mostrarNotificacion(a));
-    }catch(e){ }
-  }, 5000);
-}
+
+      // mostrar SOLO las últimas 5 para evitar spam
+      arr.slice(-5).forEach(a => mostrarNotificacion(a));
+
+    } catch (e) {
+      console.warn("Error en notificaciones_poll", e);
+    }
+  }, 2500); // 2.5 segundos = real-time controlado
+ }
 
 // ----------------- MINI CHAT -----------------
 const chatBtn = document.getElementById('chat-btn');
