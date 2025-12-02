@@ -5,6 +5,7 @@
 ROJO="\e[31m"
 RESET="\e[0m"
 echo -e "${ROJO}_________________________________________________${RESET}"
+echo -e "${ROJO}                                                 ${RESET}"
 echo -e "${ROJO}     Sistema PPAM - equipo de desarrolladores    ${RESET}"
 echo -e "${ROJO}_________________________________________________${RESET}"
 #
