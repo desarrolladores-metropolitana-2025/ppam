@@ -17,9 +17,11 @@ ROJO="\e[31m"
 AMARILLO="\e[33m"
 AZUL="\e[34m"
 RESET="\e[0m"
-
+# Carpeta donde guardar el log
+LOG_DIR="./ppamtools_data"
+LOGFILE="$LOG_DIR/grabartodo_log.txt"
 FECHA=$(date +"%Y-%m-%d %H:%M:%S")
-LOGFILE="grabartodo_log.txt"
+# LOGFILE="grabartodo_log.txt"
 
 echo -e "${AZUL}=========================================${RESET}"
 echo -e "${AZUL}    Guardando todo y sincronizando       ${RESET}"
