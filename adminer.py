@@ -1003,8 +1003,20 @@ def new_record(table):
         if request.method == "POST":
             data = {}
             for col in columns:
+                column_obj = model.__table__.columns[col]
                 val = request.form.get(col)
-                data[col] = val if val != "" else None
+
+                # --- FIX para BOOLEAN ---
+                if hasattr(column_obj.type, "python_type") and column_obj.type.python_type is bool:
+                    if val in ("True", "true", "1", "on"):
+                        data[col] = True
+                    elif val in ("False", "false", "0", "", None):
+                        data[col] = False
+                    else:
+                        data[col] = None
+                else:
+                    data[col] = val if val != "" else None
+
             obj = model(**data)
             db.session.add(obj)
             db.session.commit()
@@ -1030,7 +1042,6 @@ def new_record(table):
         sql = f"INSERT INTO `{table}` ({', '.join(fields)}) VALUES ({', '.join(values)})"
 
         try:
-            # Usamos begin() para que haga commit automáticamente
             with db.engine.begin() as conn:
                 conn.execute(text(sql), params)
         except Exception as e:
@@ -1040,9 +1051,7 @@ def new_record(table):
 
     return render_template_string(FORM_TEMPLATE, action="Nuevo", table=table, columns=columns, values={})
 
-
 # ------------------ GENERIC + ORM: EDIT RECORD ------------------
-
 @adminer_bp.route("/table/<table>/edit/<int:id>", methods=["GET","POST"])
 def edit_record(table, id):
     if not _validate_table(table):
@@ -1059,15 +1068,27 @@ def edit_record(table, id):
 
         if request.method == "POST":
             for col in columns:
+                column_obj = model.__table__.columns[col]
                 val = request.form.get(col)
-                setattr(obj, col, val if val != "" else None)
+
+                # --- FIX para BOOLEAN ---
+                if hasattr(column_obj.type, "python_type") and column_obj.type.python_type is bool:
+                    if val in ("True", "true", "1", "on"):
+                        setattr(obj, col, True)
+                    elif val in ("False", "false", "0", "", None):
+                        setattr(obj, col, False)
+                    else:
+                        setattr(obj, col, None)
+                else:
+                    setattr(obj, col, val if val != "" else None)
+
             db.session.commit()
             return redirect(url_for("adminer.table_view", table=table))
 
         values = {col: getattr(obj, col) for col in columns}
         return render_template_string(FORM_TEMPLATE, action="Editar", table=table, columns=columns, values=values)
 
-    # GENERIC TABLE
+    # GENERIC TABLE (RAW SQL)
     meta = _get_table_meta(table)
     columns = [m["Field"] for m in meta if m["Field"] != "id"]
 
@@ -1077,7 +1098,7 @@ def edit_record(table, id):
     if not row:
         return "Registro no encontrado", 404
 
-    row = row._mapping  # RowMapping
+    row = row._mapping
 
     if request.method == "POST":
         sets = []
@@ -1095,7 +1116,6 @@ def edit_record(table, id):
 
     values = {c: row[c] for c in columns}
     return render_template_string(FORM_TEMPLATE, action="Editar", table=table, columns=columns, values=values)
-
 
 # ------------------ GENERIC + ORM: DELETE RECORD ------------------
 
