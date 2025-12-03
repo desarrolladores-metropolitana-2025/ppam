@@ -453,6 +453,7 @@ STRUCTURE_TEMPLATE = """
     <div><strong>Tabla:</strong> {{ table }} <span class="small"> &middot; columnas: {{ meta|length }}</span></div>
     <div class="table-wrapper">
       <a class="btn" href="{{ url_for('adminer.table_add_column', table=table) }}">➕ Agregar columna</a>
+      <a class="btn" href="{{ url_for('adminer.table_add_fk', table=table) }}">Agregar FK</a>
       <a class="btn danger" href="{{ url_for('adminer.table_delete', table=table) }}">🗑 Eliminar tabla</a>
       <a class="btn" href="{{ url_for('adminer.table_view', table=table) }}">⟲ Volver</a>
     </div>
@@ -520,7 +521,7 @@ ADD_COLUMN_TEMPLATE = """
       <input type="hidden" name="sql" value="{{ preview_sql|e }}">
       <input type="hidden" name="backup" value="{{ backup }}">
       <button type="submit">Confirmar y ejecutar</button>
-    </form>
+    </form> 
   {% endif %}
 </div>
 </body></html>
@@ -558,6 +559,125 @@ MODIFY_COLUMN_TEMPLATE = """
   {% endif %}
 </div>
 </body></html>
+"""
+
+ADD_FK_TEMPLATE = """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agregar Foreign Key — {{ table }}</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    padding: 0;
+    margin: 0;
+    background: #f2f2f2;
+}
+.container {
+    width: 60%;
+    margin: 30px auto;
+    background: #fff;
+    padding: 20px 25px;
+    border-radius: 8px;
+}
+h3, h4 {
+    margin-top: 0;
+}
+.form-group {
+    margin-bottom: 15px;
+}
+label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+input, select {
+    padding: 7px;
+    width: 100%;
+    box-sizing: border-box;
+}
+button {
+    padding: 8px 15px;
+    cursor: pointer;
+}
+pre {
+    background: #eee;
+    padding: 10px;
+    border-radius: 5px;
+    white-space: pre-wrap;
+}
+</style>
+
+</head>
+<body>
+<div class="container">
+
+  <h3>Agregar Foreign Key — {{ table }}</h3>
+
+  <form method="post">
+
+    <div class="form-group">
+        <label>Columna local</label>
+        <input name="local_col" required>
+    </div>
+
+    <div class="form-group">
+        <label>Tabla referenciada</label>
+        <input name="ref_table" required>
+    </div>
+
+    <div class="form-group">
+        <label>Columna referenciada</label>
+        <input name="ref_col" required>
+    </div>
+
+    <div class="form-group">
+        <label>ON DELETE</label>
+        <select name="on_delete">
+            <option value="">(nada)</option>
+            <option value="CASCADE">CASCADE</option>
+            <option value="SET NULL">SET NULL</option>
+            <option value="RESTRICT">RESTRICT</option>
+            <option value="NO ACTION">NO ACTION</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>ON UPDATE</label>
+        <select name="on_update">
+            <option value="">(nada)</option>
+            <option value="CASCADE">CASCADE</option>
+            <option value="SET NULL">SET NULL</option>
+            <option value="RESTRICT">RESTRICT</option>
+            <option value="NO ACTION">NO ACTION</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label><input type="checkbox" name="backup" checked> Hacer backup antes de ejecutar</label>
+    </div>
+
+    <button type="submit">Generar Preview</button>
+    <a href="{{ url_for('adminer.table_structure', table=table) }}">Cancelar</a>
+
+  </form>
+
+  {% if preview_sql %}
+    <h4>SQL a ejecutar</h4>
+    <pre>{{ preview_sql }}</pre>
+
+    <form method="post" action="{{ url_for('adminer.table_add_fk_execute', table=table) }}">
+      <input type="hidden" name="sql" value="{{ preview_sql|e }}">
+      <input type="hidden" name="backup" value="{{ backup }}">
+      <button type="submit">Confirmar y ejecutar</button>
+    </form>
+  {% endif %}
+
+</div>
+</body>
+</html>
 """
 
 DELETE_CONFIRM_TEMPLATE = """
@@ -1167,32 +1287,71 @@ def table_structure(table):
         preview_sql=None,
         log=log_text
     )
-
-
-# Add column -> preview -> execute
+# --- AGREGAR COLUMNA ---------------------------------------------------    
 @adminer_bp.route("/table/<table>/structure/add", methods=["GET","POST"])
 def table_add_column(table):
     if not _validate_table(table):
         return "Tabla no permitida", 404
+
     preview_sql = None
     backup = "1"
+
     if request.method == "POST":
         col_name = request.form.get("col_name", "").strip()
         col_type = request.form.get("col_type", "").strip()
         is_null = request.form.get("is_null") or "NULL"
-        default = request.form.get("default","").strip()
+        default = request.form.get("default", "").strip()
         backup = request.form.get("backup", "1")
         default_clause = ""
+
         if default:
-            try:
-                float(default)
+            safe = default.replace("'", "''")
+
+            # Palabras clave SQL que no llevan comillas
+            SQL_KEYWORDS = {
+                "CURRENT_TIMESTAMP",
+                "CURRENT_DATE",
+                "CURRENT_TIME",
+                "NOW()",
+                "UUID()",
+            }
+
+            # Si coincide con keyword exacta
+            if default.upper() in SQL_KEYWORDS:
                 default_clause = f" DEFAULT {default}"
-            except Exception:
-                safe = default.replace("'", "''")
-                default_clause = f" DEFAULT '{safe}'"
-        preview_sql = f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` {col_type} {is_null}{default_clause};"
-        return render_template_string(ADD_COLUMN_TEMPLATE, table=table, preview_sql=preview_sql, backup=backup)
-    return render_template_string(ADD_COLUMN_TEMPLATE, table=table, preview_sql=None, backup=backup)
+
+            # Si el usuario ya puso comillas manualmente
+            elif (default.startswith("'") and default.endswith("'")) \
+              or (default.startswith('"') and default.endswith('"')):
+                default_clause = f" DEFAULT {default}"
+
+            # Si es número → dejar sin comillas
+            else:
+                try:
+                    float(default)
+                    default_clause = f" DEFAULT {default}"
+                except:
+                    default_clause = f" DEFAULT '{safe}'"
+
+        preview_sql = (
+            f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` "
+            f"{col_type} {is_null}{default_clause};"
+        )
+
+        return render_template_string(
+            ADD_COLUMN_TEMPLATE,
+            table=table,
+            preview_sql=preview_sql,
+            backup=backup
+        )
+
+    return render_template_string(
+        ADD_COLUMN_TEMPLATE,
+        table=table,
+        preview_sql=None,
+        backup=backup
+    )
+
 
 @adminer_bp.route("/table/<table>/structure/add/execute", methods=["POST"])
 def table_add_column_execute(table):
@@ -1509,6 +1668,75 @@ def protect_adminer(app):
         if rule.endpoint.startswith("apiapp."):
             view = app.view_functions[rule.endpoint]
             app.view_functions[rule.endpoint] = login_required(admin_required(view))
+# ------------------ AGREGAR FK -----------
+# Add Foreign Key -> preview -> execute
+@adminer_bp.route("/table/<table>/structure/add_fk", methods=["GET", "POST"])
+def table_add_fk(table):
+    if not _validate_table(table):
+        return "Tabla no permitida", 404
+
+    preview_sql = None
+    backup = "1"
+
+    if request.method == "POST":
+        local_col = request.form.get("local_col", "").strip()
+        ref_table = request.form.get("ref_table", "").strip()
+        ref_col = request.form.get("ref_col", "").strip()
+        on_delete = request.form.get("on_delete", "").strip()
+        on_update = request.form.get("on_update", "").strip()
+        backup = request.form.get("backup", "1")
+
+        # constraint name automático
+        constraint_name = f"fk_{table}_{local_col}"
+
+        sql = (
+            f"ALTER TABLE `{table}` "
+            f"ADD CONSTRAINT `{constraint_name}` "
+            f"FOREIGN KEY (`{local_col}`) "
+            f"REFERENCES `{ref_table}`(`{ref_col}`)"
+        )
+
+        if on_delete:
+            sql += f" ON DELETE {on_delete}"
+
+        if on_update:
+            sql += f" ON UPDATE {on_update}"
+
+        sql += ";"
+
+        preview_sql = sql
+
+        return render_template_string(
+            ADD_FK_TEMPLATE,
+            table=table,
+            preview_sql=preview_sql,
+            backup=backup
+        )
+
+    return render_template_string(
+        ADD_FK_TEMPLATE,
+        table=table,
+        preview_sql=None,
+        backup=backup
+    )
+# Ejecutar FK final
+@adminer_bp.route("/table/<table>/structure/add_fk/execute", methods=["POST"])
+def table_add_fk_execute(table):
+    if not _validate_table(table):
+        return "Tabla no permitida", 404
+
+    sql = request.form.get("sql")
+    backup = request.form.get("backup") == "1"
+
+    if backup:
+        _backup_table(table)
+
+    ok, err = _exec_sql(sql)
+    if not ok:
+        return f"Error ejecutando SQL: {err}", 500
+
+    return redirect(url_for("adminer.table_structure", table=table))
+
 # ------------------ END ------------------
 # Note: register blueprint in your flask_app: app.register_blueprint(adminer_bp)
 # Example:
