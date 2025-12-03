@@ -18,7 +18,7 @@ clear
 echo -e "${RED}"
 echo "┌──────────────────────────────────────────────────────────┐"
 echo "│                                                          │"
-echo "│      🌐  Sistema PPAM – Equipo de Desarrolladores         │"
+echo "│      🌐  Sistema PPAM – Equipo de Desarrolladores        │"
 echo "│                                                          │"
 echo "└──────────────────────────────────────────────────────────┘"
 echo -e "${RESET}"
