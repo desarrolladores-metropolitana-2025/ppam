@@ -17,16 +17,10 @@ from extensiones import db
 from modelos import Publicador, PuntoPredicacion, SolicitudTurno, Experiencia, Ausencia, Turno
 from sqlalchemy import text
 from flask_login import login_required, current_user
+from functools import wraps
 import os, datetime, json, io, csv, html
-
-adminer_bp = Blueprint("adminer", __name__, url_prefix="/adminer")
-@adminer_bp.app_template_filter('getattr')
-def jinja_getattr(obj, attr):
-    return getattr(obj, attr, None)
-# ----- Login Admin --------------------------    
+# ----  Admin --------
 def admin_required(func):
-    from functools import wraps
-
     @wraps(func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -37,6 +31,19 @@ def admin_required(func):
 
         return func(*args, **kwargs)
     return wrapper
+
+# ---- crear blueprint ----
+adminer_bp = Blueprint("adminer", __name__, url_prefix="/adminer")
+# ---- Filtro getattr ------------------------
+@adminer_bp.app_template_filter('getattr')
+def jinja_getattr(obj, attr):
+    return getattr(obj, attr, None)
+# ---- protección global ----
+@adminer_bp.before_request
+@login_required
+@admin_required
+def protect_adminer_routes():
+    pass
 # ------------------ CONFIG ------------------
 MODELS = {
     "publicadores": Publicador,
@@ -1662,12 +1669,7 @@ def table_delete(table):
         return redirect(url_for("adminer.index"))
 
     return render_template_string(DELETE_TABLE_TEMPLATE, table=table)
-# ------------------ Proteger todo el archivo ----------------------------------
-def protect_adminer(app):
-    for rule in app.url_map.iter_rules():
-        if rule.endpoint.startswith("apiapp."):
-            view = app.view_functions[rule.endpoint]
-            app.view_functions[rule.endpoint] = login_required(admin_required(view))
+
 # ------------------ AGREGAR FK -----------
 # Add Foreign Key -> preview -> execute
 @adminer_bp.route("/table/<table>/structure/add_fk", methods=["GET", "POST"])
@@ -1736,7 +1738,12 @@ def table_add_fk_execute(table):
         return f"Error ejecutando SQL: {err}", 500
 
     return redirect(url_for("adminer.table_structure", table=table))
-
+# ------------------ Proteger todo el archivo ----------------------------------
+def protect_adminer(app):
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint.startswith("adminer."):
+            view = app.view_functions[rule.endpoint]
+            app.view_functions[rule.endpoint] = login_required(admin_required(view))
 # ------------------ END ------------------
 # Note: register blueprint in your flask_app: app.register_blueprint(adminer_bp)
 # Example:

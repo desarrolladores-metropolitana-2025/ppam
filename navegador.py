@@ -16,8 +16,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
-
-
+from functools import wraps
 # --- Config ---
 MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200MB por archivo aprox (ajustable)
 
@@ -28,8 +27,6 @@ API_TOKEN = os.getenv("PA_API_TOKEN")  # Mejor guardarlo en variable de entorno
 WEBAPP_DOMAIN = "ppamappcaba.pythonanywhere.com"
 # -------- login admin ----------------------------------------------------------
 def admin_required(func):
-    from functools import wraps
-
     @wraps(func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -40,6 +37,12 @@ def admin_required(func):
 
         return func(*args, **kwargs)
     return wrapper
+# -- Proteger todas las páginas ------------------------------------------------    
+@navegador_bp.before_request
+@login_required
+@admin_required
+def protect_navegador_routes():
+    pass
 # -------- Fin Login ------------------------------------------------------------
 @navegador_bp.route("/reload_webapp", methods=["POST"])
 def reload_webapp():
@@ -826,6 +829,6 @@ def api_download_list():
 # ---- Protección ----
 def protect_navegador(app):
     for rule in app.url_map.iter_rules():
-        if rule.endpoint.startswith("apiapp."):
+        if rule.endpoint.startswith("navegador_full."):
             view = app.view_functions[rule.endpoint]
             app.view_functions[rule.endpoint] = login_required(admin_required(view))

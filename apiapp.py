@@ -56,7 +56,6 @@ CACHE_TTL = 60  # seconds for some caches
 # ---------- LOGIN REQUIRED ----------------------
 def admin_required(func):
     from functools import wraps
-
     @wraps(func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -67,6 +66,11 @@ def admin_required(func):
 
         return func(*args, **kwargs)
     return wrapper
+@apiapp_bp.before_request
+@login_required
+@admin_required
+def protect_apiapp_routes():
+    pass
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
