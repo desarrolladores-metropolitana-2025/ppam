@@ -50,7 +50,7 @@ NOMBRE_CUENTA = os.getenv("NOMBRE_CUENTA")
 PASSWORD_DB = os.getenv("PASSWORD_DB")
 INSTANCIA = os.getenv("INSTANCIA")
 SECRET_KEY = os.getenv("SECRET_KEY")
-DEV_USERS = {"admin", "Alberto", "Mario"}   # <-- poné acá los usuarios que son devs
+DEV_USERS = {"admin", "alberto", "mcapeluto"}   # <-- poné acá los usuarios que son devs
 
 app = Flask(__name__)
 protect_navegador(app)
