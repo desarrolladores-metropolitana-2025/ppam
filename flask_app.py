@@ -33,7 +33,7 @@ from navegador import navegador_bp
 from apiapp import apiapp_bp
 from ppamtools import ppamtools_bp, APP_OBJECT
 from navegador import protect_navegador
-from apiapp import protect_apiapp
+# from apiapp import protect_apiapp
 from adminer import protect_adminer
 # -------------------------------------------
 # Singletons de extensiones
@@ -54,7 +54,7 @@ DEV_USERS = {"admin", "alberto", "mcapeluto"}   # <-- poné acá los usuarios qu
 
 app = Flask(__name__)
 protect_navegador(app)
-protect_apiapp(app)
+# protect_apiapp(app)
 protect_adminer(app)
 app.config['FILEBROWSER_ROOT'] = '/home/ppamappcaba/mysite'  
 app.register_blueprint(bp_turnos)
@@ -63,7 +63,7 @@ app.register_blueprint(bot_api)
 app.register_blueprint(planificacion_bp)
 app.register_blueprint(adminer_bp, url_prefix="/adminer")
 app.register_blueprint(navegador_bp, url_prefix="/navegador")
-app.register_blueprint(apiapp_bp)
+app.register_blueprint(apiapp_bp, url_prefix="/apiapp")
 app.register_blueprint(ppamtools_bp, url_prefix="/ppamtools")
 APP_OBJECT["app"] = app
 if __name__ == "__main__":
@@ -1980,16 +1980,6 @@ def tomar_reemplazo(turno_id):
     db.session.commit()
     flash("Solicitud de reemplazo creada correctamente.", "success")
     return redirect(url_for("pubview"))
-
-
-
-
-
-
-
-
-
-
 
 # -------------------------------------------
 # RUN
