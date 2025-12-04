@@ -1,18 +1,21 @@
+# --------------------------------------------
 # navegador.py
 #
 # Equipo de desarrollo PPAM
 # 28/11/2025
 #
+# --------------------------------------------
 import os
 import io
 import zipfile
 import shutil
+import requests
 from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
 from flask import (
     Blueprint, current_app, request, jsonify,
-    render_template_string, send_file, abort, url_for
+    render_template_string, send_file, abort, url_for, redirect
 )
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
@@ -39,10 +42,12 @@ def admin_required(func):
     return wrapper
 # -- Proteger todas las páginas ------------------------------------------------    
 @navegador_bp.before_request
-@login_required
-@admin_required
 def protect_navegador_routes():
-    pass
+    if not current_user.is_authenticated:
+        return redirect(url_for("login", next=request.url))
+
+    if getattr(current_user, "rol", None) != "Admin":
+        abort(403)
 # -------- Fin Login ------------------------------------------------------------
 @navegador_bp.route("/reload_webapp", methods=["POST"])
 def reload_webapp():

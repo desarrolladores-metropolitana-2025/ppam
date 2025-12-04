@@ -53,6 +53,14 @@ PA_API_BASE = f"https://www.pythonanywhere.com/api/v0/user/{PA_USERNAME}" if PA_
 REQUEST_TIMEOUT = 12
 CACHE = {"webapps": {"ts": 0, "data": None}, "last_response": None}
 CACHE_TTL = 60  # seconds for some caches
+# -- resp HTML ------
+def _is_html_response(resp):
+    """Detecta si PythonAnywhere devolvió HTML en vez de JSON (caso FREE account)."""
+    if not resp:
+        return False
+    text = resp.text.strip().lower()
+    return text.startswith("<!doctype html") or text.startswith("<html")
+
 # ---------- LOGIN REQUIRED ----------------------
 def admin_required(func):
     from functools import wraps
@@ -67,10 +75,18 @@ def admin_required(func):
         return func(*args, **kwargs)
     return wrapper
 @apiapp_bp.before_request
-@login_required
-@admin_required
 def protect_apiapp_routes():
-    pass
+    # todas las APIs internas llamadas por JavaScript deben quedar libres
+    if request.path.startswith("/api/"):
+        return None  # permitir libremente
+
+    # el resto sí requiere login + admin
+    if not current_user.is_authenticated:
+        return redirect(url_for("login", next=request.url))
+
+    if getattr(current_user, "rol", None) != "Admin":
+        abort(403, description="No tenés permisos para acceder a esta sección.")
+
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
@@ -83,8 +99,10 @@ def require_pa_token(func):
     return wrapper
 
 def _pa_headers():
-    return {"Authorization": f"Token {PA_API_TOKEN}"} if PA_API_TOKEN else {}
-
+    return {
+        "Authorization": f"Token {PA_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
 def _call_pa(path, method="GET", **kwargs):
     """Call PythonAnywhere API safely. path is relative to /api/v0/user/<username>/"""
     if not PA_API_BASE:
@@ -273,6 +291,16 @@ def api_console_close(console_id):
 def api_tasks():
     if request.method == "GET":
         resp, err = _call_pa("scheduled_tasks/")
+    if err:
+        return jsonify({"ok": False, "error": err}), 500
+
+    # Detecta login-page HTML → feature no disponible
+    if _is_html_response(resp):
+        return jsonify({
+            "ok": False,
+            "error": "Scheduled Tasks no está disponible en cuentas FREE de PythonAnywhere."
+        }), 403
+
         if err:
             return jsonify({"ok": False, "error": err}), 500
         if resp.status_code == 200:
@@ -313,6 +341,15 @@ def api_task_delete(task_id):
 def api_workers():
     if request.method == "GET":
         resp, err = _call_pa("workers/")
+    if err:
+        return jsonify({"ok": False, "error": err}), 500
+
+    if _is_html_response(resp):
+        return jsonify({
+            "ok": False,
+            "error": "Workers no está disponible en cuentas FREE de PythonAnywhere."
+        }), 403
+
         if err:
             return jsonify({"ok": False, "error": err}), 500
         if resp.status_code == 200:
@@ -728,20 +765,14 @@ el("btn-delete-webapp").onclick = async ()=>{
 };
 
 /* Consoles */
-el("btn-list-consoles").onclick = async ()=>{
-  const r = await call("/api/consoles");
-  el("consoles-list").innerText = JSON.stringify(r.json||r.text, null, 2);
-};
+
 el("btn-create-console").onclick = async ()=>{
   const r = await call("/api/consoles", {method:"POST", body: new URLSearchParams({console_type:"bash"})});
   el("consoles-list").innerText = JSON.stringify(r.json||r.text, null, 2);
 };
 
 /* Tasks */
-el("btn-list-tasks").onclick = async ()=>{
-  const r = await call("/api/tasks");
-  el("tasks-list").innerText = JSON.stringify(r.json||r.text, null, 2);
-};
+
 el("btn-create-task").onclick = async ()=>{
   const command = prompt("Command to run (e.g. python3 /home/.../script.py)");
   const schedule = prompt("Schedule (eg 'daily' or cron expression)","");
@@ -802,10 +833,8 @@ el("btn-deploy").onclick = async ()=>{
   const j = await r.json();
   el("logs-area").innerText = JSON.stringify(j, null, 2);
 };
-el("btn-list-workers").onclick = async ()=>{
-  const r = await call("/api/workers");
-  el("workers-list").innerText = JSON.stringify(r.json||r.text, null, 2);
-};
+
+// Workers
 
 /* Backup & run */
 el("btn-backup").onclick = async ()=>{
@@ -835,9 +864,22 @@ el("btn-refresh").onclick = ()=>location.reload();
 el("btn-clear").onclick = ()=>{ el("webapps-list").innerText = ""; el("fm-list").innerText=""; el("last-response").innerText=""; };
 
 </script>
+<script src="{{ url_for('static', filename='js/apiapp.js') }}"></script>
 </body>
 </html>
 """
+# -----------------------------------------------------------------------------  
+# DEBUG: mostrar última respuesta real de PythonAnywhere API  
+# -----------------------------------------------------------------------------  
+@apiapp_bp.route("/_debug/last_pa_response", methods=["GET"])  
+def apiapp_debug_last_response():  
+    lr = CACHE.get("last_response")  
+    return jsonify({  
+        "PA_USERNAME": PA_USERNAME,  
+        "PA_API_TOKEN_set": bool(PA_API_TOKEN),  
+        "PA_API_BASE": PA_API_BASE,  
+        "last_response": lr  
+    })
 
 # -----------------------------------------------------------------------------
 # Index route (renders template)
