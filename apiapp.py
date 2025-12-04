@@ -3,15 +3,19 @@
 #  Sistema integral PythonAnywhere WebApps / Consoles /
 #  Workers / Scheduled Tasks / File manager / Deploy / Logs
 # ============================================================
-
 import os
 import json
 import time
 import traceback
 import requests
+import shlex
+import sqlite3
+import subprocess
+from functools import wraps
+from flask import current_app
 from flask import (
     Blueprint, request, jsonify, session,
-    render_template, send_file
+    render_template, send_file, current_app
 )
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -77,7 +81,10 @@ def pa_api(path, method="GET", payload=None, raw=False):
     # Si PA devuelve HTML → token inválido, cuenta FREE o login requerido
     if r.headers.get("content-type", "").startswith("text/html"):
         return None, "PythonAnywhere devolvió HTML (login/token incorrecto o feature bloqueada)"
-
+    # 🔥 Caso especial: DELETE devuelve 204 sin JSON
+    # 🔥 Caso especial: DELETE devuelve 204 sin JSON
+    if method.upper() == "DELETE" and r.status_code == 204:
+        return {"ok": True, "message": "Eliminado correctamente"}, 200
     # Caso normal: parse JSON
     try:
         data = r.json()
@@ -109,7 +116,18 @@ def api_consoles():
         data, err = pa_api("consoles/", method="GET")
         if err:
             return _json_error(err, 500)
-        return jsonify({"ok": True, "data": data})
+
+        # PythonAnywhere devuelve:
+        # - a veces {"consoles": [...]}
+        # - a veces [...]
+        if isinstance(data, dict):
+            consoles = data.get("consoles", [])
+        elif isinstance(data, list):
+            consoles = data
+        else:
+            consoles = []
+
+        return jsonify({"ok": True, "data": consoles})
 
     # POST → Crear consola
     payload = request.get_json() or request.form.to_dict() or {}
@@ -122,30 +140,29 @@ def api_consoles():
         return _json_error(err, 500)
 
     return jsonify({"ok": True, "data": data})
-	
+# -- Cerrar de una vez una de las benditas dos consolas que te permite PA ...
 @apiapp_bp.route("/api/consoles/<console_id>/close", methods=["POST"])
 def consoles_close(console_id):
     endpoint = f"consoles/{console_id}/"
-    # pa_api hace POST por defecto al método 'POST'; usaremos DELETE emulado via requests
     url = f"{PA_BASE}/{PA_USERNAME}/{endpoint}"
     headers = {"Authorization": f"Token {PA_TOKEN}"}
+    
     try:
         r = requests.delete(url, headers=headers, timeout=10)
     except Exception as e:
         return _json_error(f"Error conectando a PA: {e}", 500)
 
-    if _detect_free_account(r.text):
-        return _json_error("Cuenta FREE: no disponible", 403)
+    if r.status_code in (200, 204):
+        # 🔹 Devuelve siempre JSON claro
+        return jsonify({"ok": True, "message": "Consola cerrada correctamente"})
 
+    # Intentar parsear JSON si no fue 200/204
     try:
         j = r.json()
     except:
         j = {"raw_text": r.text[:2000]}
 
-    if r.status_code in (200, 204):
-        return jsonify({"ok": True, "data": j})
     return _json_error(j.get("error", f"PA HTTP {r.status_code}"), 500)
-
 
 # ------------------------------------------------------------
 # Webapps - list, details, reload, create, delete
@@ -354,24 +371,54 @@ def _safe_path_rel(rel):
         return _safe_join(BASE_ALLOWED_DIR, rel)
     except ValueError as e:
         raise
+# Simple safe path logic for file manager
+def get_root():
+    root = current_app.config.get("FILEBROWSER_ROOT", os.path.join("/home", PA_USERNAME or ""))  # default /home/<user>
+    return os.path.abspath(root)
 
+def safe_path(relpath):
+    # Accept '', '.' or nested; return absolute path within root
+    root = get_root()
+    rel = (relpath or "").strip("/")
+    joined = os.path.normpath(os.path.join(root, rel))
+    if not joined.startswith(root):
+        abort(403, "Access outside of root not allowed")
+    return joined
+
+def rel_from_abs(abs_path):
+    root = get_root()
+    return os.path.relpath(abs_path, root).replace("\\", "/")
+
+def human_size(n):
+    if n is None: return ""
+    n = float(n)
+    for unit in ['B','KB','MB','GB','TB']:
+        if n < 1024.0:
+            return f"{n:3.1f}{unit}"
+        n /= 1024.0
+    return f"{n:.1f}PB"
+
+#def is_text_file(path):
+    #return Path(path).suffix.lower() in {'.txt','.py','.md','.html','.htm','.css','.js','.json','.csv','.ini','.cfg','.log','.sql','.yml','.yaml'}
 # ------------------------------------------------------------
 # FS: listar
 # ------------------------------------------------------------
+# ----------------------------------------------------------------------
+# File Manager & local operations (PRO)
+# ----------------------------------------------------------------------
+# Lista archivos y carpetas
+# ------------------------------------------------------------
 @apiapp_bp.route("/api/fs/list", methods=["GET"])
-def fs_list():
+def api_fs_list():
     p = request.args.get("p", "").strip("/")
-    try:
-        abs_path = _safe_path_rel(p)
-    except ValueError:
-        return _json_error("Path inválido", 403)
-
+    abs_path = safe_path(p)
     if not os.path.exists(abs_path):
-        return _json_error("No encontrado", 404)
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
     items = []
     try:
-        for name in sorted(os.listdir(abs_path), key=lambda x: x.lower()):
+        names = sorted(os.listdir(abs_path), key=lambda s: s.lower())
+        for name in names:
             full = os.path.join(abs_path, name)
             try:
                 st = os.stat(full)
@@ -380,186 +427,147 @@ def fs_list():
                     "is_dir": os.path.isdir(full),
                     "size": st.st_size if os.path.isfile(full) else None,
                     "mtime": int(st.st_mtime),
-                    "rel": os.path.relpath(full, BASE_ALLOWED_DIR).replace("\\","/")
+                    "relpath": os.path.relpath(full, BASE_ALLOWED_DIR).replace("\\","/")
                 })
             except Exception:
                 continue
     except Exception as e:
-        return _json_error(f"Error leyendo directorio: {e}", 500)
+        return jsonify({"ok": False, "error": f"Error leyendo directorio: {e}"}), 500
 
     return jsonify({"ok": True, "items": items})
 
-
 # ------------------------------------------------------------
-# FS: view (text) / download (binary)
+# Ver contenido de archivo de texto
 # ------------------------------------------------------------
 @apiapp_bp.route("/api/fs/view", methods=["GET"])
-def fs_view():
+def api_fs_view():
     path = request.args.get("path", "")
-    try:
-        abs_p = _safe_path_rel(path)
-    except ValueError:
-        return _json_error("Path inválido", 403)
-
+    abs_p = safe_path(path)
     if not os.path.exists(abs_p):
-        return _json_error("No encontrado", 404)
-
+        return jsonify({"ok": False, "error": "Not found"}), 404
     if os.path.isdir(abs_p):
-        return _json_error("Es un directorio", 400)
+        return jsonify({"ok": False, "error": "Is a directory"}), 400
 
-    if _is_text_file(abs_p):
-        content = _read_file(abs_p)
-        if content is None:
-            return _json_error("No se pudo leer archivo", 500)
+    if not is_text_file(abs_p):
+        return send_file(abs_p, as_attachment=True)
+
+    try:
+        with open(abs_p, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
         return jsonify({"ok": True, "content": content})
-    else:
-        # archivo binario → enviar como attachment
-        try:
-            return send_file(abs_p, as_attachment=True)
-        except Exception as e:
-            return _json_error(f"Error enviando archivo: {e}", 500)
-
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ------------------------------------------------------------
-# FS: edit (guardar texto)
+# Editar archivo de texto
 # ------------------------------------------------------------
 @apiapp_bp.route("/api/fs/edit", methods=["POST"])
-def fs_edit():
-    path = request.form.get("path") or request.json.get("path") if request.is_json else request.form.get("path")
-    content = request.form.get("content") or (request.json.get("content") if request.is_json else None)
-    if not path:
-        return _json_error("path requerido", 400)
-    try:
-        abs_p = _safe_path_rel(path)
-    except ValueError:
-        return _json_error("Path inválido", 403)
-
+def api_fs_edit():
+    path = request.form.get("path") or (request.json.get("path") if request.is_json else "")
+    content = request.form.get("content") or (request.json.get("content") if request.is_json else "")
+    abs_p = safe_path(path)
     if os.path.isdir(abs_p):
-        return _json_error("Es un directorio", 400)
+        return jsonify({"ok": False, "error": "Is a directory"}), 400
 
     try:
-        ok = _write_file(abs_p, content or "")
-        if not ok:
-            return _json_error("Error escribiendo archivo", 500)
+        with open(abs_p, "w", encoding="utf-8") as f:
+            f.write(content or "")
+        return jsonify({"ok": True})
     except Exception as e:
-        return _json_error(f"Error escribiendo: {e}", 500)
-
-    return jsonify({"ok": True})
-
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ------------------------------------------------------------
-# FS: upload
-# ------------------------------------------------------------
-@apiapp_bp.route("/api/fs/upload", methods=["POST"])
-def fs_upload():
-    p = request.form.get("p", "").strip("/")
-    try:
-        abs_dir = _safe_path_rel(p)
-    except ValueError:
-        return _json_error("Path inválido", 403)
-
-    if 'file' not in request.files:
-        return _json_error("No file", 400)
-
-    f = request.files['file']
-    filename = secure_filename(f.filename)
-    if not filename:
-        return _json_error("Filename inválido", 400)
-
-    dest = os.path.join(abs_dir, filename)
-    try:
-        os.makedirs(abs_dir, exist_ok=True)
-        f.save(dest)
-    except Exception as e:
-        return _json_error(f"Error guardando archivo: {e}", 500)
-
-    return jsonify({"ok": True, "path": os.path.relpath(dest, BASE_ALLOWED_DIR).replace("\\","/")})
-
-
-# ------------------------------------------------------------
-# FS: delete (file o carpeta)
+# Borrar archivo o carpeta
 # ------------------------------------------------------------
 @apiapp_bp.route("/api/fs/delete", methods=["POST"])
-def fs_delete():
-    # acepta form.path o raw body con path
-    path = request.form.get("path") or (request.get_data(as_text=True) or "").strip()
+def api_fs_delete():
+    path = request.form.get("path") or request.get_data(as_text=True).strip()
     if not path:
-        return _json_error("path requerido", 400)
-    try:
-        abs_p = _safe_path_rel(path)
-    except ValueError:
-        return _json_error("Path inválido", 403)
+        return jsonify({"ok": False, "error": "path requerido"}), 400
+    abs_p = safe_path(path)
 
     if not os.path.exists(abs_p):
-        return _json_error("No encontrado", 404)
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
     try:
         if os.path.isdir(abs_p):
             shutil.rmtree(abs_p)
         else:
             os.remove(abs_p)
+        return jsonify({"ok": True})
     except Exception as e:
-        return _json_error(f"Error eliminando: {e}", 500)
-
-    return jsonify({"ok": True})
-
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ------------------------------------------------------------
-# FS: mkdir
+# Subir archivo
 # ------------------------------------------------------------
-@apiapp_bp.route("/api/fs/mkdir", methods=["POST"])
-def fs_mkdir():
-    path = request.form.get("path") or (request.json.get("path") if request.is_json else None)
-    if not path:
-        return _json_error("path requerido", 400)
-    try:
-        abs_p = _safe_path_rel(path)
-    except ValueError:
-        return _json_error("Path inválido", 403)
+@apiapp_bp.route("/api/fs/upload", methods=["POST"])
+def api_fs_upload():
+    p = request.form.get("p", "").strip("/")
+    abs_dir = safe_path(p)
+    if 'file' not in request.files:
+        return jsonify({"ok": False, "error": "no file"}), 400
 
+    f = request.files['file']
+    filename = secure_filename(f.filename)
+    if not filename:
+        return jsonify({"ok": False, "error": "Filename inválido"}), 400
+
+    dest = os.path.join(abs_dir, filename)
     try:
-        os.makedirs(abs_p, exist_ok=True)
+        os.makedirs(abs_dir, exist_ok=True)
+        f.save(dest)
+        return jsonify({"ok": True, "relpath": os.path.relpath(dest, BASE_ALLOWED_DIR).replace("\\","/")})
     except Exception as e:
-        return _json_error(f"Error creando carpeta: {e}", 500)
-
-    return jsonify({"ok": True})
-
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ------------------------------------------------------------
-# FS: download folder as zip
+# Descargar archivo o carpeta (zip si es carpeta)
 # ------------------------------------------------------------
 @apiapp_bp.route("/api/fs/download", methods=["GET"])
-def fs_download():
+def api_fs_download():
     path = request.args.get("path", "")
-    try:
-        abs_p = _safe_path_rel(path)
-    except ValueError:
-        return _json_error("Path inválido", 403)
-
+    abs_p = safe_path(path)
     if not os.path.exists(abs_p):
-        return _json_error("No encontrado", 404)
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
-    if os.path.isfile(abs_p):
+    if os.path.isdir(abs_p):
+        buf = io.BytesIO()
         try:
-            return send_file(abs_p, as_attachment=True)
+            with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for root, _, files in os.walk(abs_p):
+                    for f in files:
+                        full = os.path.join(root, f)
+                        arcname = os.path.relpath(full, abs_p).replace("\\","/")
+                        zf.write(full, arcname)
+            buf.seek(0)
+            name = f"{Path(abs_p).name}.zip"
+            return send_file(buf, as_attachment=True, download_name=name, mimetype="application/zip")
         except Exception as e:
-            return _json_error(f"Error enviando archivo: {e}", 500)
+            return jsonify({"ok": False, "error": f"Error creando zip: {e}"}), 500
+    else:
+        return send_file(abs_p, as_attachment=True)
 
-    # Si es carpeta -> crear zip streaming en memoria
+# ------------------------------------------------------------
+# Crear backup (zip de carpeta)
+# ------------------------------------------------------------
+@apiapp_bp.route("/api/fs/backup", methods=["POST"])
+def api_fs_backup():
+    p = request.form.get("p", "").strip("/")
+    abs_base = safe_path(p)
+    name = f"backup_{Path(abs_base).name}_{int(time.time())}.zip"
     buf = io.BytesIO()
     try:
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for root, _, files in os.walk(abs_p):
+            for root, _, files in os.walk(abs_base):
                 for f in files:
                     full = os.path.join(root, f)
-                    arcname = os.path.relpath(full, abs_p)
+                    arcname = os.path.relpath(full, abs_base).replace("\\","/")
                     zf.write(full, arcname)
         buf.seek(0)
-        name = f"{Path(abs_p).name}.zip"
         return send_file(buf, as_attachment=True, download_name=name, mimetype="application/zip")
     except Exception as e:
-        return _json_error(f"Error creando zip: {e}", 500)
-
+        return jsonify({"ok": False, "error": f"Error creando backup: {e}"}), 500
 
 # ------------------------------------------------------------
 # FS: move / rename
@@ -589,10 +597,7 @@ def fs_move():
 # ============================================================
 #  apiapp.py — VERSIÓN PRO (Parte 5 / 6)
 #  LOGS · DEPLOY · RUN COMMAND · BACKUP · DEBUG
-# ============================================================
-
-import subprocess
-
+# ===========================================================
 
 # ============================================================
 # LOGS
@@ -773,6 +778,260 @@ def debug_last_pa_response():
         "token_present": bool(PA_TOKEN),
         "base_url": PA_BASE,
     })
+# ----------------- Helpers para Databases & Domains (pegar en apiapp.py) -----------------
+def require_pa_token(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not PA_TOKEN or not PA_USERNAME:
+            return jsonify({"ok": False, "error": "PA_API_TOKEN or PA_USERNAME not configured in env"}), 500
+        return func(*args, **kwargs)
+    return wrapper
+def api_response(data=None, message=None, status=200):
+    body = {"ok": True}
+    if data is not None:
+        body["data"] = data
+    if message:
+        body["message"] = message
+    return jsonify(body), status
+
+def api_error(msg, status=400):
+    return jsonify({"ok": False, "error": str(msg)}), status
+
+def run_cmd(args, timeout=10):
+    """Run command safely (args list). Return (returncode, stdout, stderr)."""
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except Exception as e:
+        return 255, "", str(e)
+
+def sqlite_exec(db_path, query, fetch=True):
+    """Execute SQL on sqlite DB safely. Returns rows or message."""
+    try:
+        con = sqlite3.connect(db_path, timeout=10)
+        cur = con.cursor()
+        cur.execute(query)
+        if fetch:
+            rows = cur.fetchall()
+        else:
+            rows = []
+        con.commit()
+        cur.close()
+        con.close()
+        return True, rows
+    except Exception as e:
+        return False, str(e)
+
+# Paths helper: base dir for DBs under your safe root (so no surprises)
+def get_db_base():
+    # colocamos bases sqlite/mysql/postgres dentro del get_root() por seguridad
+    base = os.path.join(get_root(), "databases")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+# ----------------- Endpoints: Databases -----------------
+@apiapp_bp.route("/api/databases", methods=["GET"])
+@require_pa_token
+def api_databases_list():
+    base = get_db_base()
+    items = []
+
+    # SQLite files (search in base/sqlite)
+    sqlite_dir = os.path.join(base, "sqlite")
+    if os.path.isdir(sqlite_dir):
+        for f in sorted(os.listdir(sqlite_dir)):
+            if f.endswith(".db"):
+                items.append({"name": f, "type": "sqlite", "relpath": os.path.join("sqlite", f)})
+
+    # MySQL & Postgres: these are best-effort entries (PA-managed DBs may not be filesystem-visible)
+    # list MySQL databases by running `mysql -e 'SHOW DATABASES'` if mysql client exists
+    code, out, err = run_cmd(["which", "mysql"], timeout=3)
+    if code == 0:
+        # try to list databases (uses no-password, will only work if client can auth)
+        # NOTE: this may fail on PA free accounts; we return best-effort
+        code2, out2, err2 = run_cmd(["mysql", "-e", "SHOW DATABASES;"], timeout=5)
+        if code2 == 0:
+            for line in out2.splitlines()[1:]:
+                line = line.strip()
+                if line:
+                    items.append({"name": line, "type": "mysql"})
+    # Postgres: similar attempt
+    code, out, err = run_cmd(["which", "psql"], timeout=3)
+    if code == 0:
+        code2, out2, err2 = run_cmd(["psql", "-c", "\\l"], timeout=5)
+        if code2 == 0:
+            # best-effort: include raw output
+            items.append({"name": "postgres_list (raw)", "type": "postgres", "raw": out2.splitlines()[:10]})
+
+    return api_response(data=items)
+
+@apiapp_bp.route("/api/databases", methods=["POST"])
+@require_pa_token
+def api_database_create():
+    body = request.get_json() or request.form.to_dict() or {}
+    name = (body.get("name") or "").strip()
+    dbtype = (body.get("type") or "").strip().lower()
+    if not name or not dbtype:
+        return api_error("name and type required", 400)
+
+    base = get_db_base()
+    if dbtype == "sqlite":
+        sqlite_dir = os.path.join(base, "sqlite")
+        os.makedirs(sqlite_dir, exist_ok=True)
+        path = os.path.join(sqlite_dir, f"{name}.db")
+        if os.path.exists(path):
+            return api_error("SQLite DB already exists", 409)
+        open(path, "wb").close()
+        return api_response(message="SQLite DB creada", data={"relpath": os.path.relpath(path, get_root()).replace("\\","/")})
+
+    if dbtype == "mysql":
+        # attempt to create database via mysql client (safer than os.system with formatted string)
+        # This requires the mysql client to be authenticated; this may fail on PA free accounts.
+        rc, out, err = run_cmd(["mysql", "-e", f"CREATE DATABASE `{name}`;"])
+        if rc == 0:
+            return api_response(message="MySQL DB creada")
+        return api_error(f"MySQL error: {err or out}", 500)
+
+    if dbtype == "postgres":
+        rc, out, err = run_cmd(["createdb", name])
+        if rc == 0:
+            return api_response(message="Postgres DB creada")
+        return api_error(f"Postgres error: {err or out}", 500)
+
+    return api_error("Tipo no soportado", 400)
+
+@apiapp_bp.route("/api/databases/delete", methods=["POST"])
+@require_pa_token
+def api_database_delete():
+    body = request.get_json() or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return api_error("name required", 400)
+
+    base = get_db_base()
+    sqlite_path = os.path.join(base, "sqlite", f"{name}.db")
+    if os.path.exists(sqlite_path):
+        try:
+            os.remove(sqlite_path)
+            return api_response(message="SQLite DB eliminada")
+        except Exception as e:
+            return api_error(f"Error eliminando sqlite: {e}", 500)
+
+    # try drop in MySQL
+    rc, out, err = run_cmd(["mysql", "-e", f"DROP DATABASE IF EXISTS `{name}`;"])
+    if rc == 0:
+        return api_response(message="MySQL DB eliminada (si existía)")
+    # fallback
+    return api_error("No se encontró la DB o no se pudo eliminar", 404)
+
+@apiapp_bp.route("/api/databases/sql", methods=["POST"])
+@require_pa_token
+def api_database_sql():
+    body = request.get_json() or {}
+    db = (body.get("db") or "").strip()
+    query = (body.get("query") or "").strip()
+    if not db or not query:
+        return api_error("db and query required", 400)
+
+    base = get_db_base()
+    # SQLite
+    sqlite_path = os.path.join(base, "sqlite", db if db.endswith(".db") else f"{db}.db")
+    if os.path.exists(sqlite_path):
+        ok, result = sqlite_exec(sqlite_path, query, fetch=True)
+        if ok:
+            return api_response(data=result)
+        return api_error(result, 500)
+
+    # MySQL: use mysql client to run query (best-effort)
+    rc, out, err = run_cmd(["mysql", db, "-e", query], timeout=10)
+    if rc == 0:
+        # parse output into lines
+        return api_response(data=out.splitlines())
+    return api_error(err or out, 500)
+# ----------------- Endpoints: Domains / WSGI / Static -----------------
+@apiapp_bp.route("/api/domains", methods=["GET"])
+@require_pa_token
+def api_domains_list():
+    # Best-effort: try PythonAnywhere API (if available) or fallback to local file
+    try:
+        resp, err = _call_pa("domains/")
+        if err:
+            # fallback to local file or empty
+            local = os.path.join(get_root(), "domains.json")
+            if os.path.exists(local):
+                with open(local, "r", encoding="utf-8") as f:
+                    return api_response(data=json.load(f))
+            return api_response(data=[])
+        if resp.status_code == 200:
+            try:
+                return api_response(data=resp.json())
+            except Exception:
+                return api_error("Invalid JSON from PA", 502)
+        return api_error(f"PA HTTP {resp.status_code}: {resp.text}", 502)
+    except Exception as e:
+        return api_error(str(e), 500)
+
+@apiapp_bp.route("/api/webapp/<name>/wsgi", methods=["GET"])
+@require_pa_token
+def api_webapp_wsgi(name):
+    # Try to fetch via PythonAnywhere API first
+    try:
+        resp, err = _call_pa(f"webapps/{name}/")
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                # many PA webapp objects include 'wsgi_file' or 'source_directory' - return helpful fields
+                wsgi_info = {
+                    "wsgi_file": data.get("wsgi_file") or data.get("wsgi_path"),
+                    "source_directory": data.get("source_directory"),
+                    "raw": data
+                }
+                return api_response(data=wsgi_info)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Fallback: try common filesystem locations inside get_root()
+    candidate = os.path.join(get_root(), name, "wsgi.py")
+    if os.path.exists(candidate):
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                content = f.read()
+            return api_response(data={"wsgi": content, "path": rel_from_abs(candidate)})
+        except Exception as e:
+            return api_error(f"Error leyendo wsgi: {e}", 500)
+
+    return api_error("WSGI not found", 404)
+
+@apiapp_bp.route("/api/webapp/<name>/static", methods=["GET"])
+@require_pa_token
+def api_webapp_static(name):
+    # try PythonAnywhere API first for static files config
+    try:
+        resp, err = _call_pa(f"webapps/{name}/")
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                static_maps = data.get("static_files", []) or data.get("static_mappings") or []
+                if static_maps:
+                    return api_response(data=static_maps)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Fallback: look for common static folder under the app source dir
+    candidate = os.path.join(get_root(), name, "static")
+    if os.path.isdir(candidate):
+        files = []
+        for root, _, fs in os.walk(candidate):
+            for f in fs:
+                files.append(os.path.relpath(os.path.join(root, f), candidate).replace("\\","/"))
+        return api_response(data=files)
+
+    return api_error("Static folder not found", 404)
+# ---------------------------------
 # ============================================================
 #  apiapp.py — VERSIÓN PRO (Parte 6 / 6)
 #  Plantilla HTML integrada (index) + JS PRO + utilidades finales
@@ -796,6 +1055,7 @@ INDEX_HTML = r"""
 <meta charset="utf-8">
 <title>API App · PythonAnywhere · PRO</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <style>
 body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fb;margin:0;color:#0b1220}
 .app{max-width:1100px;margin:18px auto;padding:14px}
@@ -881,7 +1141,50 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
       </div>
       <pre id="logs-area" class="list">--</pre>
     </div>
+<div class="card">
+    <h2>Databases</h2>
+    <p>Gestiona tus bases MySQL, Postgres y SQLite.</p>
 
+    <button onclick="load_databases()">Listar Bases</button>
+    <pre id="db_list"></pre>
+
+    <h3>Crear Base</h3>
+    <input id="new_db_name" placeholder="Nombre de la base">
+    <select id="new_db_type">
+      <option value="mysql">MySQL</option>
+      <option value="postgres">Postgres</option>
+      <option value="sqlite">SQLite</option>
+    </select>
+    <button onclick="create_database()">Crear</button>
+
+    <h3>Eliminar Base</h3>
+    <input id="del_db_name" placeholder="Nombre de la base">
+    <button onclick="delete_database()">Eliminar</button>
+
+    <h3>Ejecutar SQL</h3>
+    <input id="sql_db_name" placeholder="Base">
+    <textarea id="sql_query" placeholder="Ej: SELECT * FROM tabla"></textarea>
+    <button onclick="exec_sql()">Ejecutar</button>
+    <pre id="sql_result"></pre>
+</div>
+
+<div class="card">
+    <h2>Domains / Static / WSGI</h2>
+    <p>Herramientas avanzadas de webapps.</p>
+
+    <button onclick="load_domains()">Listar Dominios</button>
+    <pre id="domains_list"></pre>
+
+    <h3>WSGI Config</h3>
+    <input id="wsgi_app_name" placeholder="Nombre webapp">
+    <button onclick="load_wsgi()">Ver WSGI</button>
+    <pre id="wsgi_result"></pre>
+
+    <h3>Static Files</h3>
+    <input id="static_app_name" placeholder="Nombre webapp">
+    <button onclick="load_static()">Ver Static Files</button>
+    <pre id="static_result"></pre>
+</div>
   </div>
 
   <div style="margin-top:12px">
@@ -895,29 +1198,37 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
 <script>
 const el = id => document.getElementById(id);
 let lastResp = null;
-
+const api = axios.create({
+    baseURL: '/api',
+    headers: {
+        'Content-Type': 'application/json'
+    }
+});
 async function callApi(path, opts = {}) {
   try {
     const res = await fetch("/apiapp" + path, opts);
     const text = await res.text();
-    // try parse JSON
+    
+    // Intentamos parsear JSON
     try {
       const json = JSON.parse(text);
       lastResp = {ok: res.ok, status: res.status, json};
-      // normalized error handling: if PA feature disabled -> show it
-      if (json && json.ok === false) {
-        return {ok:false, status: res.status, json};
-      }
+      if (json && json.ok === false) return {ok:false, status: res.status, json};
       return {ok: res.ok, status: res.status, json};
     } catch (e) {
-      lastResp = {ok: res.ok, status: res.status, text};
-      return {ok: res.ok, status: res.status, text};
+      // No es JSON → revisamos si es HTML de error de PA free
+      let msg = text.match(/<h1>(.*?)<\/h1>/)?.[1] || "Error de servidor";
+      let code = text.match(/Error code:\s*(.*?)<\/p>/)?.[1] || res.status;
+      lastResp = {ok: false, status: res.status, text};
+      return {ok: false, status: res.status, error: `Servidor respondió HTML: ${msg} (code: ${code})`, text};
     }
+
   } catch (e) {
     lastResp = {ok:false, error: e.toString()};
     return {ok:false, error: e.toString()};
   }
 }
+
 
 function showLast() {
   el("last-response").innerText = JSON.stringify(lastResp, null, 2);
@@ -952,7 +1263,8 @@ window.showWebapp = async (name) => {
 
 window.reloadWebapp = async (name) => {
   const r = await callApi("/api/webapp/" + encodeURIComponent(name) + "/reload", { method: "POST" });
-  alert(JSON.stringify(r.json || r.text || r.error, null, 2));
+  if (!r.ok) return alert(r.error);
+  alert(JSON.stringify(r.json || r.text, null, 2));
   el("btn-list-webapps").click();
 };
 
@@ -1044,7 +1356,7 @@ el("btn-list-consoles").onclick = async () => {
   }
   const items = r.json.data || [];
   if (!items.length) { el("consoles-list").innerText = "(no consoles)"; return; }
-  el("consoles-list").innerHTML = items.map(c => `<div style="padding:6px;border-bottom:1px solid #f0f4f8"><b>ID: ${c.id}</b><div class="muted small">${c.console_type} • ${c.created}</div>
+  el("consoles-list").innerHTML = items.map(c => `<div style="padding:6px;border-bottom:1px solid #f0f4f8"><b>ID: ${c.id}</b><div class="muted small">${c.webapp || "(no informan tipo)"} • ${c.url || ""}</div>
     <div style="margin-top:6px"><button class="btn light" onclick="closeConsole('${c.id}')">Close</button></div></div>`).join("");
 };
 
@@ -1065,12 +1377,24 @@ el("btn-fm-list").onclick = async () => {
   el("fm-list").innerText = "Loading...";
   const p = el("fm-path").value.trim();
   const r = await callApi("/api/fs/list?p=" + encodeURIComponent(p));
-  if (!r.ok) { el("fm-list").innerText = "Error: " + (r.json?.error || r.text || r.error); showLast(); return; }
+  if (!r.ok) {
+    // si es HTML (error de PA FREE o backend) mostramos mensaje reducido
+    if (r.text && r.text.includes("<body>")) {
+      const msg = r.text.match(/<h1>(.*?)<\/h1>/)?.[1] || "Error al listar";
+      el("fm-list").innerText = `Error: ${msg}`;
+    } else {
+      el("fm-list").innerText = "Error: " + (r.json?.error || r.text || r.error);
+    }
+    showLast();
+    return;
+  }
+
   const items = r.json.items || [];
   if (!items.length) { el("fm-list").innerText = "(empty)"; return; }
   el("fm-list").innerHTML = items.map(i => `<div style="padding:6px;border-bottom:1px solid #f0f4f8"><b>${i.name}${i.is_dir?'/':''}</b> <div class="muted small">size:${i.size||'-'} mtime:${new Date(i.mtime*1000).toLocaleString()}</div>
     <div style="margin-top:6px"><button class="btn light" onclick="viewFile('${i.rel}')">View</button> <button class="btn" onclick="downloadFile('${i.rel}')">DL</button> <button class="btn light" onclick="deleteFile('${i.rel}')">Del</button></div></div>`).join("");
 };
+
 
 window.viewFile = async (rel) => {
   const r = await callApi("/api/fs/view?path=" + encodeURIComponent(rel));
@@ -1113,7 +1437,47 @@ el("btn-debug").onclick = async () => {
 window.addEventListener("beforeunload", () => {
   // nothing heavy; keep
 });
+// ----  DB ------------------------------------------------
+async function load_databases() {
+    const r = await api('/databases');
+    document.getElementById('db_list').textContent = JSON.stringify(r, null, 2);
+}
+async function create_database() {
+    const name = document.getElementById('new_db_name').value;
+    const type = document.getElementById('new_db_type').value;
+    const r = await api('/databases', {name, type});
+    alert(JSON.stringify(r, null, 2));
+    load_databases();
+}
+async function delete_database() {
+    const name = document.getElementById('del_db_name').value;
+    const r = await api('/databases/delete', {name});
+    alert(JSON.stringify(r, null, 2));
+    load_databases();
+}
+async function exec_sql() {
+    const db = document.getElementById('sql_db_name').value;
+    const query = document.getElementById('sql_query').value;
+    const r = await api('/databases/sql', {db, query});
+    document.getElementById('sql_result').textContent = JSON.stringify(r, null, 2);
+}
 
+async function load_domains() {
+    const r = await api('/api/domains');
+    document.getElementById('domains_list').textContent = JSON.stringify(r, null, 2);
+}
+
+async function load_wsgi() {
+    const app = document.getElementById('wsgi_app_name').value;
+    const r = await api(`/api/webapp/${app}/wsgi`);
+    document.getElementById('wsgi_result').textContent = JSON.stringify(r, null, 2);
+}
+
+async function load_static() {
+    const app = document.getElementById('static_app_name').value;
+    const r = await api(`/api/webapp/${app}/static`);
+    document.getElementById('static_result').textContent = JSON.stringify(r, null, 2);
+}
 </script>
 </body>
 </html>
