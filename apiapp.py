@@ -102,20 +102,27 @@ def _safe_join(base, *paths):
 # ------------------------------------------------------------
 # Consoles - create (POST) and close
 # ------------------------------------------------------------
-@apiapp_bp.route("/api/consoles", methods=["POST"])
-def consoles_create():
+@apiapp_bp.route("/api/consoles", methods=["GET", "POST"])
+def api_consoles():
+    if request.method == "GET":
+        # Listar consolas
+        data, err = pa_api("consoles/", method="GET")
+        if err:
+            return _json_error(err, 500)
+        return jsonify({"ok": True, "data": data})
+
+    # POST → Crear consola
     payload = request.get_json() or request.form.to_dict() or {}
-    # Por seguridad, solo permitir tipos conocidos
     console_type = payload.get("console_type", "bash")
     if console_type not in ("bash", "python"):
         return _json_error("console_type inválido", 400)
 
-    data, err = pa_api("consoles/", method="POST", data={"console_type": console_type})
+    data, err = pa_api("consoles/", method="POST", payload={"console_type": console_type})
     if err:
-        return _json_error(err, 403)
+        return _json_error(err, 500)
 
     return jsonify({"ok": True, "data": data})
-
+	
 @apiapp_bp.route("/api/consoles/<console_id>/close", methods=["POST"])
 def consoles_close(console_id):
     endpoint = f"consoles/{console_id}/"
@@ -138,6 +145,7 @@ def consoles_close(console_id):
     if r.status_code in (200, 204):
         return jsonify({"ok": True, "data": j})
     return _json_error(j.get("error", f"PA HTTP {r.status_code}"), 500)
+
 
 # ------------------------------------------------------------
 # Webapps - list, details, reload, create, delete
