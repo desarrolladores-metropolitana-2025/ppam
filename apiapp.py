@@ -32,6 +32,10 @@ PA_BASE = "https://www.pythonanywhere.com/api/v0/user"
 PA_USERNAME = os.getenv("PA_USERNAME", "")
 PA_TOKEN = os.getenv("PA_API_TOKEN", "")
 WSGI_FILE = "/var/www/ppamappcaba_pythonanywhere_com_wsgi.py"
+MYSQL_HOST     = os.getenv("MYSQL_HOST", "")
+MYSQL_USER     = os.getenv("MYSQL_USER", "")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "")
 
 # Para validar paths en FS
 BASE_ALLOWED_DIR = os.path.expanduser("~/")
@@ -837,36 +841,38 @@ def api_databases_list():
     base = get_db_base()
     items = []
 
-    # SQLite files (search in base/sqlite)
+    # --- SQLITE ---
     sqlite_dir = os.path.join(base, "sqlite")
     if os.path.isdir(sqlite_dir):
         for f in sorted(os.listdir(sqlite_dir)):
             if f.endswith(".db"):
                 items.append({"name": f, "type": "sqlite", "relpath": os.path.join("sqlite", f)})
 
-    # MySQL & Postgres: these are best-effort entries (PA-managed DBs may not be filesystem-visible)
-    # list MySQL databases by running `mysql -e 'SHOW DATABASES'` if mysql client exists
-    code, out, err = run_cmd(["which", "mysql"], timeout=3)
+    # --- MYSQL (PythonAnywhere: requiere credenciales) ---
+   
+    cmd = [
+    "mysql",
+    "-h", MYSQL_HOST,
+    "-u", MYSQL_USER,
+    f"-p{MYSQL_PASSWORD}",
+    MYSQL_DATABASE,   # <= necesario en PA
+    "-e", "SHOW DATABASES;"
+    ]
+
+    code, out, err = run_cmd(cmd, timeout=5)
+
     if code == 0:
-        # try to list databases (uses no-password, will only work if client can auth)
-        # NOTE: this may fail on PA free accounts; we return best-effort
-        code2, out2, err2 = run_cmd(["mysql", "-e", "SHOW DATABASES;"], timeout=5)
-        if code2 == 0:
-            for line in out2.splitlines()[1:]:
-                line = line.strip()
-                if line:
-                    items.append({"name": line, "type": "mysql"})
-    # Postgres: similar attempt
-    code, out, err = run_cmd(["which", "psql"], timeout=3)
-    if code == 0:
-        code2, out2, err2 = run_cmd(["psql", "-c", "\\l"], timeout=5)
-        if code2 == 0:
-            # best-effort: include raw output
-            items.append({"name": "postgres_list (raw)", "type": "postgres", "raw": out2.splitlines()[:10]})
+        for line in out.splitlines()[1:]:
+            line = line.strip()
+            if line:
+                items.append({"name": line, "type": "mysql"})
+    else:
+        # Opcional: mostrar razón del fallo
+        current_app.logger.warning(f"No se pudo listar DB mysql: {err or out}")
 
     return api_response(data=items)
 
-@apiapp_bp.route("/api/databases", methods=["POST"])
+@apiapp_bp.route("/api/databases/create", methods=["POST"])
 @require_pa_token
 def api_database_create():
     body = request.get_json() or request.form.to_dict() or {}
@@ -886,12 +892,24 @@ def api_database_create():
         return api_response(message="SQLite DB creada", data={"relpath": os.path.relpath(path, get_root()).replace("\\","/")})
 
     if dbtype == "mysql":
-        # attempt to create database via mysql client (safer than os.system with formatted string)
-        # This requires the mysql client to be authenticated; this may fail on PA free accounts.
-        rc, out, err = run_cmd(["mysql", "-e", f"CREATE DATABASE `{name}`;"])
+    # En PA las bases deben llamarse: USER$DBNAME
+        full_name = f"{MYSQL_USER}${name}"
+
+        cmd = [
+            "mysql",
+            "-h", MYSQL_HOST,
+            "-u", MYSQL_USER,
+            f"-p{MYSQL_PASSWORD}",
+            MYSQL_DATABASE,
+            "-e", f"CREATE DATABASE `{full_name}`;"
+        ]
+
+        rc, out, err = run_cmd(cmd, timeout=10)
+
         if rc == 0:
-            return api_response(message="MySQL DB creada")
+            return api_response(message="MySQL DB creada", data={"dbname": full_name})
         return api_error(f"MySQL error: {err or out}", 500)
+
 
     if dbtype == "postgres":
         rc, out, err = run_cmd(["createdb", name])
@@ -910,6 +928,8 @@ def api_database_delete():
         return api_error("name required", 400)
 
     base = get_db_base()
+
+    # --- SQLITE ---
     sqlite_path = os.path.join(base, "sqlite", f"{name}.db")
     if os.path.exists(sqlite_path):
         try:
@@ -918,12 +938,24 @@ def api_database_delete():
         except Exception as e:
             return api_error(f"Error eliminando sqlite: {e}", 500)
 
-    # try drop in MySQL
-    rc, out, err = run_cmd(["mysql", "-e", f"DROP DATABASE IF EXISTS `{name}`;"])
+    # --- MYSQL ---
+    # Igual que en /sql y /create
+    cmd = [
+        "mysql",
+        "-h", MYSQL_HOST,
+        "-u", MYSQL_USER,
+        f"-p{MYSQL_PASSWORD}",
+        MYSQL_DATABASE,   # requerido para autenticar en PA
+        "-e", f"DROP DATABASE IF EXISTS `{name}`;"
+    ]
+
+    rc, out, err = run_cmd(cmd, timeout=10)
+
     if rc == 0:
         return api_response(message="MySQL DB eliminada (si existía)")
-    # fallback
-    return api_error("No se encontró la DB o no se pudo eliminar", 404)
+
+    # Si mysql falló
+    return api_error(f"MySQL error: {err or out}", 500)
 
 @apiapp_bp.route("/api/databases/sql", methods=["POST"])
 @require_pa_token
@@ -944,7 +976,17 @@ def api_database_sql():
         return api_error(result, 500)
 
     # MySQL: use mysql client to run query (best-effort)
-    rc, out, err = run_cmd(["mysql", db, "-e", query], timeout=10)
+    cmd = [
+    "mysql",
+    "-h", MYSQL_HOST,
+    "-u", MYSQL_USER,
+    f"-p{MYSQL_PASSWORD}",
+    MYSQL_DATABASE,
+    "-e", query
+    ]
+
+    rc, out, err = run_cmd(cmd, timeout=10)
+    #rc, out, err = run_cmd(["mysql", db, "-e", query], timeout=10)
     if rc == 0:
         # parse output into lines
         return api_response(data=out.splitlines())
@@ -1498,26 +1540,26 @@ window.addEventListener("beforeunload", () => {
 // ----  DB ------------------------------------------------
 async function load_databases() {
     const r = await api('/databases');
-    document.getElementById('db_list').textContent = JSON.stringify(r, null, 2);
+    document.getElementById('db_list').textContent = JSON.stringify(r.data, null, 2);
 }
 async function create_database() {
     const name = document.getElementById('new_db_name').value;
     const type = document.getElementById('new_db_type').value;
-    const r = await api('/databases', {name, type});
-    alert(JSON.stringify(r, null, 2));
+    const r = await api.post('/databases/create', {name, type});
+    alert(JSON.stringify(r.data, null, 2));
     load_databases();
 }
 async function delete_database() {
     const name = document.getElementById('del_db_name').value;
-    const r = await api('/databases/delete', {name});
-    alert(JSON.stringify(r, null, 2));
+    const r = await api.post('/databases/delete', {name});
+    alert(JSON.stringify(r.data, null, 2));
     load_databases();
 }
 async function exec_sql() {
     const db = document.getElementById('sql_db_name').value;
     const query = document.getElementById('sql_query').value;
-    const r = await api('/databases/sql', {db, query});
-    document.getElementById('sql_result').textContent = JSON.stringify(r, null, 2);
+    const r = await api.post('/databases/sql', {db, query});
+    document.getElementById('sql_result').textContent = JSON.stringify(r.data, null, 2);
 }
 
 async function load_domains() {
