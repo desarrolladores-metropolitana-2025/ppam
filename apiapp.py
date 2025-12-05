@@ -31,6 +31,7 @@ apiapp_bp = Blueprint("apiapp_bp", __name__, url_prefix="/apiapp")
 PA_BASE = "https://www.pythonanywhere.com/api/v0/user"
 PA_USERNAME = os.getenv("PA_USERNAME", "")
 PA_TOKEN = os.getenv("PA_API_TOKEN", "")
+WSGI_FILE = "/var/www/ppamappcaba_pythonanywhere_com_wsgi.py"
 
 # Para validar paths en FS
 BASE_ALLOWED_DIR = os.path.expanduser("~/")
@@ -954,7 +955,7 @@ def api_database_sql():
 def api_domains_list():
     # Best-effort: try PythonAnywhere API (if available) or fallback to local file
     try:
-        resp, err = _call_pa("domains/")
+        resp, err = pa_api("domains/")
         if err:
             # fallback to local file or empty
             local = os.path.join(get_root(), "domains.json")
@@ -970,68 +971,118 @@ def api_domains_list():
         return api_error(f"PA HTTP {resp.status_code}: {resp.text}", 502)
     except Exception as e:
         return api_error(str(e), 500)
-
+# ---- WSGI FILES ----------------------
+# ---- WSGI ----------------------------
 @apiapp_bp.route("/api/webapp/<name>/wsgi", methods=["GET"])
-@require_pa_token
 def api_webapp_wsgi(name):
-    # Try to fetch via PythonAnywhere API first
+    """
+    Obtiene el archivo WSGI real de PythonAnywhere SIN usar la API,
+    porque la API de webapps está bloqueada en planes FREE.
+    """
+    filename = f"/var/www/{name}_pythonanywhere_com_wsgi.py"
+
+    if not os.path.exists(filename):
+        return api_error(f"WSGI file not found at {filename}", 404)
+
     try:
-        resp, err = _call_pa(f"webapps/{name}/")
-        if resp and resp.status_code == 200:
-            try:
-                data = resp.json()
-                # many PA webapp objects include 'wsgi_file' or 'source_directory' - return helpful fields
-                wsgi_info = {
-                    "wsgi_file": data.get("wsgi_file") or data.get("wsgi_path"),
-                    "source_directory": data.get("source_directory"),
-                    "raw": data
-                }
-                return api_response(data=wsgi_info)
-            except Exception:
-                pass
-    except Exception:
-        pass
+        with open(filename, "r", encoding="utf-8") as f:
+            content = f.read()
 
-    # Fallback: try common filesystem locations inside get_root()
-    candidate = os.path.join(get_root(), name, "wsgi.py")
-    if os.path.exists(candidate):
-        try:
-            with open(candidate, "r", encoding="utf-8") as f:
-                content = f.read()
-            return api_response(data={"wsgi": content, "path": rel_from_abs(candidate)})
-        except Exception as e:
-            return api_error(f"Error leyendo wsgi: {e}", 500)
+        return api_response(data={
+            "wsgi_file": filename,
+            "content": content
+        })
 
-    return api_error("WSGI not found", 404)
+    except Exception as e:
+        return api_error(f"Could not read WSGI file: {e}", 500)
 
+# --- STATIC FILES -------------
 @apiapp_bp.route("/api/webapp/<name>/static", methods=["GET"])
 @require_pa_token
-def api_webapp_static(name):
-    # try PythonAnywhere API first for static files config
+def api_webapp_static(name):   
+
+    # Ruta ABSOLUTA al static en PythonAnywhere
+    STATIC_FOLDER = "/home/ppamappcaba/mysite/static"
+
+    # Primero intentamos la API de PA
     try:
-        resp, err = _call_pa(f"webapps/{name}/")
-        if resp and resp.status_code == 200:
-            try:
-                data = resp.json()
-                static_maps = data.get("static_files", []) or data.get("static_mappings") or []
-                if static_maps:
-                    return api_response(data=static_maps)
-            except Exception:
-                pass
+        data, err = pa_api(f"webapps/{name}/")
+        if data and not err:
+            static_maps = (
+                data.get("static_files", []) or
+                data.get("static_mappings", []) or
+                []
+            )
+            if static_maps:
+                # IMPORTANTE: formateamos la respuesta más bonito
+                return api_response(data=static_maps)
     except Exception:
         pass
 
-    # Fallback: look for common static folder under the app source dir
-    candidate = os.path.join(get_root(), name, "static")
-    if os.path.isdir(candidate):
+    # Fallback manual → recorremos el directorio estático real
+    if os.path.isdir(STATIC_FOLDER):
         files = []
-        for root, _, fs in os.walk(candidate):
+        for root, _, fs in os.walk(STATIC_FOLDER):
             for f in fs:
-                files.append(os.path.relpath(os.path.join(root, f), candidate).replace("\\","/"))
+                relpath = os.path.relpath(
+                    os.path.join(root, f),
+                    STATIC_FOLDER
+                ).replace("\\", "/")
+                files.append(relpath)
+
         return api_response(data=files)
 
+    # Si esto falla, realmente no existe
     return api_error("Static folder not found", 404)
-# ---------------------------------
+# -------------------- GET ---------------------------------
+@apiapp_bp.route("/api/webapp/<name>/wsgi", methods=["GET"])
+def api_webapp_wsgi_get(name):
+    """
+    Lee y devuelve el archivo WSGI real de PythonAnywhere.
+    """
+    filename = f"/var/www/{name}_pythonanywhere_com_wsgi.py"
+
+    if not os.path.exists(filename):
+        return api_error(f"WSGI file not found at {filename}", 404)
+
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        return api_response(data={
+            "wsgi_file": filename,
+            "content": content
+        })
+
+    except Exception as e:
+        return api_error(f"Could not read WSGI file: {e}", 500)
+# -------  GUARDAR ---------
+@apiapp_bp.route("/api/webapp/<name>/wsgi", methods=["POST"])
+def api_webapp_wsgi_save(name):
+    """
+    Guarda (sobrescribe) el archivo WSGI real.
+    """
+    filename = f"/var/www/{name}_pythonanywhere_com_wsgi.py"
+
+    data = request.get_json(silent=True) or {}
+    new_content = data.get("content")
+
+    if not new_content:
+        return api_error("Falta 'content' para guardar el WSGI", 400)
+
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        return api_response(data={
+            "saved": True,
+            "wsgi_file": filename,
+            "size": len(new_content)
+        })
+
+    except Exception as e:
+        return api_error(f"No se pudo guardar el WSGI: {e}", 500)
+
 # ============================================================
 #  apiapp.py — VERSIÓN PRO (Parte 6 / 6)
 #  Plantilla HTML integrada (index) + JS PRO + utilidades finales
@@ -1177,7 +1228,14 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
 
     <h3>WSGI Config</h3>
     <input id="wsgi_app_name" placeholder="Nombre webapp">
-    <button onclick="load_wsgi()">Ver WSGI</button>
+    <button onclick="load_wsgi()">Ver WSGI</button>&nbsp;
+    <button onclick="loadWSGI()">Cargar WSGI</button>
+    <div id="wsgi-box" style="display:none;">
+    <textarea id="wsgi-editor" style="width:100%;height:300px"></textarea>
+    <br><button onclick="saveWSGI()">Guardar WSGI</button>
+    </div>
+    
+    
     <pre id="wsgi_result"></pre>
 
     <h3>Static Files</h3>
@@ -1199,7 +1257,7 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
 const el = id => document.getElementById(id);
 let lastResp = null;
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: '/apiapp/api',
     headers: {
         'Content-Type': 'application/json'
     }
@@ -1463,20 +1521,100 @@ async function exec_sql() {
 }
 
 async function load_domains() {
-    const r = await api('/api/domains');
-    document.getElementById('domains_list').textContent = JSON.stringify(r, null, 2);
+    const r = await api('/domains');
+    document.getElementById('domains_list').innerHTML = `
+  <pre style="
+      background:#f7f7f9;
+      padding:10px;
+      border-radius:8px;
+      white-space:pre-wrap;
+  ">${JSON.stringify(r.data.data, null, 2)}</pre>
+`;
+
+}
+function decodeEscapes(str) {
+    try {
+        // Convierte secuencias como \n, \t, \" en caracteres reales
+        return JSON.parse(`"${str.replace(/"/g, '\\"')}"`);
+    } catch {
+        return str;
+    }
+}
+function escapeHtml(str) {
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 }
 
 async function load_wsgi() {
     const app = document.getElementById('wsgi_app_name').value;
-    const r = await api(`/api/webapp/${app}/wsgi`);
-    document.getElementById('wsgi_result').textContent = JSON.stringify(r, null, 2);
+    const r = await api(`/webapp/${app}/wsgi`);
+    
+   // El contenido viene en "content"
+    let content = r.json?.content || r.data?.content || r.data?.data;
+    if (!content) {
+        alert("Error: el backend no envió el contenido WSGI");
+        console.error("WSGI JSON:", r.json);
+        return;
+    }
+    if (typeof content !== "string") {
+        console.warn("WSGI: content NO ES STRING:", content);
+        content = JSON.stringify(content, null, 2);
+    }
+
+    // ✔ escapado HTML
+    content = content
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    if (typeof content === "string") {
+    content = decodeEscapes(content);
+     }   
+  document.getElementById('wsgi_result').innerHTML = `
+  <pre style="
+      background:#f7f7f9;
+      padding:10px;
+      border-radius:8px;
+      white-space:pre-wrap;
+  ">${content}</pre>
+  
+`;
+el("wsgi-box").style.display = "none";
+    el("wsgi_result").style.display = "block";
 }
 
 async function load_static() {
     const app = document.getElementById('static_app_name').value;
-    const r = await api(`/api/webapp/${app}/static`);
-    document.getElementById('static_result').textContent = JSON.stringify(r, null, 2);
+    const r = await api(`/webapp/${app}/static`);
+  document.getElementById('static_result').innerHTML = `
+  <pre style="
+    background:#f7f7f9;
+    padding:10px;
+    border-radius:8px;
+    white-space:pre-wrap;
+  ">${JSON.stringify(r.data, null, 2)}</pre>
+`;
+}
+async function loadWSGI() {
+    const r = await callApi("/api/webapp/ppamappcaba/wsgi");
+    if (!r.ok) return alert("Error: " + (r.json?.error || r.text));
+    el("wsgi-editor").value = r.json.data.content;
+    // mostrar el textarea recién ahora
+    el("wsgi-box").style.display = "block";
+    el("wsgi_result").style.display = "none";
+}
+async function saveWSGI() {
+    const content = el("wsgi-editor").value;
+
+    const r = await callApi("/api/webapp/ppamappcaba/wsgi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content })
+    });
+
+    alert(JSON.stringify(r.json || r.error, null, 2));
 }
 </script>
 </body>
