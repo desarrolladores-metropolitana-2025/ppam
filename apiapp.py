@@ -12,13 +12,13 @@ import shlex
 import sqlite3
 import subprocess
 from functools import wraps
-from flask import current_app
 from flask import (
     Blueprint, request, jsonify, session,
     render_template, send_file, current_app
 )
 from datetime import datetime, timedelta
 from pathlib import Path
+from apiutils import api_response, api_error, normalize_pa, _detect_free_account  # Usá tus helpers existentes
 
 # ------------------------------------------------------------
 # BLUEPRINT PRINCIPAL
@@ -28,8 +28,9 @@ apiapp_bp = Blueprint("apiapp_bp", __name__, url_prefix="/apiapp")
 # ------------------------------------------------------------
 # CONFIG
 # ------------------------------------------------------------
-PA_BASE = "https://www.pythonanywhere.com/api/v0/user"
 PA_USERNAME = os.getenv("PA_USERNAME", "")
+PA_BASE = "https://www.pythonanywhere.com/api/v0/user"
+PA_API_BASE = f"https://www.pythonanywhere.com/api/v0/user/{PA_USERNAME}"
 PA_TOKEN = os.getenv("PA_API_TOKEN", "")
 WSGI_FILE = "/var/www/ppamappcaba_pythonanywhere_com_wsgi.py"
 MYSQL_HOST     = os.getenv("MYSQL_HOST", "")
@@ -39,23 +40,22 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "")
 
 # Para validar paths en FS
 BASE_ALLOWED_DIR = os.path.expanduser("~/")
+# ====================================================
+# Mock de Always-On tasks para testing en cuenta FREE
+# ====================================================
+
+# Lista simulada de tasks
+_ALWAYSON_MOCK = [
+    {"id": 1, "command": "python3 mybot.py", "enabled": True},
+    {"id": 2, "command": "python3 updater.py", "enabled": False},
+    {"id": 3, "command": "python3 watcher.py", "enabled": True},
+]
 
 # ------------------------------------------------------------
 # UTILIDADES
 # ------------------------------------------------------------
-# ============================================================
-#   PythonAnywhere API — Wrapper PRO
-# ============================================================
-
-_LAST_PA_RESPONSE = None
-
+# -----       pa_api()  --------------------------------------
 def pa_api(path, method="GET", payload=None, raw=False):
-    """
-    Wrapper centralizado para consumir la API de PythonAnywhere.
-    - Maneja token
-    - Captura errores
-    - Guarda última respuesta para debug
-    """
     global _LAST_PA_RESPONSE
 
     url = f"{PA_BASE}/{PA_USERNAME}/{path.lstrip('/')}"
@@ -69,34 +69,37 @@ def pa_api(path, method="GET", payload=None, raw=False):
             r = requests.get(url, headers=headers, timeout=12)
         elif method.upper() == "POST":
             r = requests.post(url, headers=headers, json=payload, timeout=12)
+        elif method.upper() == "PATCH":
+            r = requests.patch(url, headers=headers, json=payload, timeout=12)
         elif method.upper() == "DELETE":
             r = requests.delete(url, headers=headers, timeout=12)
         else:
-            return None, f"Método HTTP no soportado: {method}"
-
+            return None, 500
     except Exception as e:
         _LAST_PA_RESPONSE = str(e)
-        return None, f"Error de conexión: {e}"
+        return None, 500
 
     _LAST_PA_RESPONSE = {
         "status": r.status_code,
         "text": r.text[:5000],
     }
 
-    # Si PA devuelve HTML → token inválido, cuenta FREE o login requerido
+    # Respuesta HTML (token incorrecto / cuenta free)
     if r.headers.get("content-type", "").startswith("text/html"):
-        return None, "PythonAnywhere devolvió HTML (login/token incorrecto o feature bloqueada)"
-    # 🔥 Caso especial: DELETE devuelve 204 sin JSON
-    # 🔥 Caso especial: DELETE devuelve 204 sin JSON
+        return None, r.status_code
+
+    # DELETE con 204 No Content
     if method.upper() == "DELETE" and r.status_code == 204:
         return {"ok": True, "message": "Eliminado correctamente"}, 200
-    # Caso normal: parse JSON
+
+    # Intentar parsear JSON
     try:
         data = r.json()
-        return data, None
+        return data, r.status_code
     except Exception:
-        return None, "Respuesta JSON inválida desde PythonAnywhere"
-
+        _LAST_PA_RESPONSE = {"status": r.status_code, "text": r.text[:5000]}
+        return None, r.status_code
+# -- otras funciones helpers -------------------------
 def _json_error(msg, code=400):
     return jsonify({"ok": False, "error": msg}), code
 
@@ -118,9 +121,9 @@ def _safe_join(base, *paths):
 def api_consoles():
     if request.method == "GET":
         # Listar consolas
-        data, err = pa_api("consoles/", method="GET")
-        if err:
-            return _json_error(err, 500)
+        data, code = pa_api("consoles/", method="GET")  # <-- ahora pa_api devuelve (data, status)
+        if code >= 400 or data is None:
+            return _json_error(f"Error PA: {data}", 500)
 
         # PythonAnywhere devuelve:
         # - a veces {"consoles": [...]}
@@ -140,11 +143,12 @@ def api_consoles():
     if console_type not in ("bash", "python"):
         return _json_error("console_type inválido", 400)
 
-    data, err = pa_api("consoles/", method="POST", payload={"console_type": console_type})
-    if err:
-        return _json_error(err, 500)
+    data, code = pa_api("consoles/", method="POST", payload={"console_type": console_type})
+    if code >= 400 or data is None:
+        return _json_error(f"Error PA: {data}", 500)
 
     return jsonify({"ok": True, "data": data})
+
 # -- Cerrar de una vez una de las benditas dos consolas que te permite PA ...
 @apiapp_bp.route("/api/consoles/<console_id>/close", methods=["POST"])
 def consoles_close(console_id):
@@ -181,9 +185,11 @@ def _cached_webapps(force=False):
         it = _CACHE.get("webapps", {})
         if it.get("data") and (now - it.get("ts", 0) < _CACHE_TTL):
             return it["data"], None
-    data, err = pa_api("webapps/")
-    if err:
-        return None, err
+
+    data, code = pa_api("webapps/")  # <-- ahora code es status_code
+    if code >= 400 or data is None:
+        return None, f"Error PA: {data}"
+
     _CACHE["webapps"]["data"] = data
     _CACHE["webapps"]["ts"] = now
     return data, None
@@ -202,7 +208,7 @@ def webapp_details(name):
     # intentar endpoint directo
     endpoint = f"webapps/{name}/"
     data, err = pa_api(endpoint)
-    if err:
+    if err >= 400 or data is None: 
         # fallback: listar y buscar por domain_name o name
         all_data, all_err = _cached_webapps()
         if all_err:
@@ -218,7 +224,7 @@ def webapp_reload(name):
     # acepta domain o internal name
     # intento directo
     data, err = pa_api(f"webapps/{name}/reload/", method="POST")
-    if err:
+    if err >= 400 or data is None:
         # intento matching por domain_name
         all_data, all_err = _cached_webapps()
         if all_err:
@@ -239,7 +245,7 @@ def webapp_create():
     if not all(payload.get(k) for k in required):
         return _json_error("domain_name y source_directory requeridos", 400)
     data, err = pa_api("webapps/", method="POST", data=payload)
-    if err:
+    if err >= 400 or data is None:
         return _json_error(err, 403)
     # invalidar cache
     _CACHE["webapps"]["data"] = None
@@ -277,17 +283,25 @@ def webapp_delete(name):
 
 @apiapp_bp.route("/api/tasks", methods=["GET"])
 def tasks_list():
-    data, err = pa_api("scheduled_tasks/")
-    if err:
-        return _json_error(err, 403)
-    return jsonify({"ok": True, "data": data.get("tasks", [])})
+    data, code = pa_api("scheduled_tasks/")
 
+    if code == 403:
+        return _json_error("Cuenta FREE: no disponible", 403)
+
+    if data is None:
+        # si aún hay HTML, intentar detectar FREE
+        text = _LAST_PA_RESPONSE.get("text") if _LAST_PA_RESPONSE else ""
+        if _detect_free_account(text):
+            return _json_error("Cuenta FREE: no disponible", 403)
+        return _json_error(f"Error PA: HTTP {code}", code or 500)
+
+    return jsonify({"ok": True, "data": data.get("tasks", [])})
 
 @apiapp_bp.route("/api/tasks/<task_id>/run", methods=["POST"])
 def tasks_run(task_id):
     endpoint = f"scheduled_tasks/{task_id}/run/"
     data, err = pa_api(endpoint, method="POST")
-    if err:
+    if err >= 400 or data is None:
         return _json_error(err, 403)
     return jsonify({"ok": True, "message": "Tarea ejecutada", "data": data})
 
@@ -321,11 +335,20 @@ def tasks_delete(task_id):
 # ------------------------------------------------------------
 @apiapp_bp.route("/api/workers", methods=["GET"])
 def workers_list():
-    data, err = pa_api("workers/")
-    if err:
-        return _json_error(err, 403)
-    return jsonify({"ok": True, "data": data.get("workers", [])})
+    data, code = pa_api("workers/")
 
+    # Si PA devuelve 403 → cuenta FREE
+    if code == 403:
+        return _json_error("Cuenta FREE: no disponible", 403)
+
+    # Si no hay data, revisar si es HTML o error
+    if data is None:
+        text = _LAST_PA_RESPONSE.get("text") if _LAST_PA_RESPONSE else ""
+        if _detect_free_account(text):
+            return _json_error("Cuenta FREE: no disponible", 403)
+        return _json_error(f"Error PA: HTTP {code}", code or 500)
+
+    return jsonify({"ok": True, "data": data.get("workers", [])})
 
 @apiapp_bp.route("/api/workers/<name>/delete", methods=["POST"])
 def workers_delete(name):
@@ -1124,6 +1147,54 @@ def api_webapp_wsgi_save(name):
 
     except Exception as e:
         return api_error(f"No se pudo guardar el WSGI: {e}", 500)
+# -- Always on tasks endpoints ------------
+# ---------------------------------------------------
+# 1) Listar tareas
+# ---------------------------------------------------
+@apiapp_bp.route("/api/alwayson/list")
+@require_pa_token
+def api_alwayson_list():
+    return api_response(data=_ALWAYSON_MOCK)
+
+# ---------------------------------------------------
+# 2) Reiniciar task
+# ---------------------------------------------------
+@apiapp_bp.route("/api/alwayson/restart", methods=["POST"])
+@require_pa_token
+def api_alwayson_restart():
+    body = request.get_json() or {}
+    task_id = body.get("id")
+
+    if task_id is None:
+        return api_error("id required", 400)
+
+    # mock: solo confirmamos la acción
+    task = next((t for t in _ALWAYSON_MOCK if t["id"] == task_id), None)
+    if not task:
+        return api_error("Task no encontrada", 404)
+
+    # simulamos restart
+    return api_response(message=f"Restart solicitado para task {task_id}", data=task)
+
+# ---------------------------------------------------
+# 3) Toggle (habilitar/deshabilitar)
+# ---------------------------------------------------
+@apiapp_bp.route("/api/alwayson/toggle", methods=["POST"])
+@require_pa_token
+def api_alwayson_toggle():
+    body = request.get_json() or {}
+    task_id = body.get("id")
+    enabled = body.get("enabled")
+
+    if task_id is None or enabled is None:
+        return api_error("id y enabled son requeridos", 400)
+
+    task = next((t for t in _ALWAYSON_MOCK if t["id"] == task_id), None)
+    if not task:
+        return api_error("Task no encontrada", 404)
+
+    task["enabled"] = bool(enabled)
+    return api_response(message=f"Toggle solicitado para task {task_id}", data=task)
 
 # ============================================================
 #  apiapp.py — VERSIÓN PRO (Parte 6 / 6)
@@ -1285,6 +1356,26 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
     <button onclick="load_static()">Ver Static Files</button>
     <pre id="static_result"></pre>
 </div>
+<!-- Always on tasks  -->
+<div class="card">
+    <h2>⚙ Always-On Tasks</h2>
+
+    <button onclick="alwayson_list()" class="btn">🔄 Ver Tasks</button>
+
+    <div id="alwayson_container" style="margin-top: 10px; display:none;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Comando</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="alwayson_rows"></tbody>
+        </table>
+    </div>
+</div>
   </div>
 
   <div style="margin-top:12px">
@@ -1298,12 +1389,21 @@ input, select, textarea{padding:8px;border-radius:8px;border:1px solid #e6eef5;w
 <script>
 const el = id => document.getElementById(id);
 let lastResp = null;
-const api = axios.create({
+ const api = axios.create({
     baseURL: '/apiapp/api',
     headers: {
         'Content-Type': 'application/json'
     }
-});
+}); 
+/* const api = async (url, payload) => {
+    try {
+        const r = await axios.post(url, payload);
+        return r.data; // devuelve {ok: true, data: [...]} directamente
+    } catch(e) {
+        return { ok: false, error: e.message };
+    }
+} */
+
 async function callApi(path, opts = {}) {
   try {
     const res = await fetch("/apiapp" + path, opts);
@@ -1658,6 +1758,61 @@ async function saveWSGI() {
 
     alert(JSON.stringify(r.json || r.error, null, 2));
 }
+/* -------------- Always on tasks => Listar y reiniciar -------------------- */
+
+async function alwayson_list() {
+    const r = await api('/alwayson/list');
+
+    // Ajuste: manejar undefined error
+   
+    if (!r || !r.data.ok) {
+    alert("Error: " + JSON.stringify(r, null, 2));
+    return;
+    }
+
+    const tasks = r.data.data || [];  // Asegurarse que sea array
+    const tbody = document.getElementById("alwayson_rows");
+    tbody.innerHTML = "";
+
+    if (!tasks.length) {
+        tbody.innerHTML = "<tr><td colspan='4' style='text-align:center'>No hay tareas Always-On</td></tr>";
+        document.getElementById("alwayson_container").style.display = "block";
+        return;
+    }
+
+    tasks.forEach(t => {
+        const row = `
+            <tr>
+                <td>${t.id}</td>
+                <td>${t.command}</td>
+                <td>${t.enabled ? "🟢 ON" : "🔴 OFF"}</td>
+                <td>
+                    <button class="btn-sm" onclick="alwayson_restart(${t.id})">⟳ Restart</button>
+                    <button class="btn-sm" onclick="alwayson_toggle(${t.id}, ${!t.enabled})">
+                        ${t.enabled ? "⏸ Deshabilitar" : "▶ Habilitar"}
+                    </button>
+                </td>
+            </tr>
+        `;
+        tbody.insertAdjacentHTML("beforeend", row);
+    });
+
+    document.getElementById("alwayson_container").style.display = "block";
+}
+// Restart ...
+async function alwayson_restart(id) {
+    if (!confirm("¿Reiniciar task " + id + "?")) return;
+    const r = await api('/alwayson/restart', { id });
+    alert(JSON.stringify(r, null, 2));
+    alwayson_list();
+}
+
+async function alwayson_toggle(id, enabled) {
+    const r = await api('/alwayson/toggle', { id, enabled });
+    alert(JSON.stringify(r, null, 2));
+    alwayson_list();
+}
+
 </script>
 </body>
 </html>
