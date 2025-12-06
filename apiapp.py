@@ -296,15 +296,55 @@ def tasks_list():
         return _json_error(f"Error PA: HTTP {code}", code or 500)
 
     return jsonify({"ok": True, "data": data.get("tasks", [])})
+# -- Create scheduled tasks -------------------------------------------
+@apiapp_bp.route("/api/tasks/create", methods=["POST"])
+def tasks_create():
+    payload = request.get_json(force=True)
 
+    cmd = payload.get("command")
+    schedule = payload.get("schedule")
+
+    if not cmd:
+        return _json_error("Falta 'command'", 400)
+
+    body = {
+        "command": cmd,
+        "schedule": schedule or ""
+    }
+
+    data, code = pa_api("scheduled_tasks/", method="POST", payload=body)
+
+    if data is None or code >= 400:
+        text = _LAST_PA_RESPONSE.get("text") if _LAST_PA_RESPONSE else ""
+        if _detect_free_account(text):
+            return _json_error("Cuenta FREE: no disponible", 403)
+        return _json_error(f"Error PA: HTTP {code}", code)
+
+    return jsonify({
+        "ok": True,
+        "message": "Task creada",
+        "data": data
+    })
+# -- RUN tasks ---------------------------------------------------
 @apiapp_bp.route("/api/tasks/<task_id>/run", methods=["POST"])
 def tasks_run(task_id):
     endpoint = f"scheduled_tasks/{task_id}/run/"
-    data, err = pa_api(endpoint, method="POST")
-    if err >= 400 or data is None:
-        return _json_error(err, 403)
-    return jsonify({"ok": True, "message": "Tarea ejecutada", "data": data})
+    data, code = pa_api(endpoint, method="POST")
 
+    # Error HTTP o respuesta HTML (data=None)
+    if data is None or code >= 400:
+        text = _LAST_PA_RESPONSE.get("text") if _LAST_PA_RESPONSE else ""
+        if _detect_free_account(text):
+            return _json_error("Cuenta FREE: no disponible", 403)
+
+        return _json_error(f"Error PA: HTTP {code}", code or 500)
+
+    # OK
+    return jsonify({
+        "ok": True,
+        "message": "Tarea ejecutada correctamente",
+        "data": data
+    })
 
 @apiapp_bp.route("/api/tasks/<task_id>/delete", methods=["POST"])
 def tasks_delete(task_id):
@@ -1518,7 +1558,7 @@ el("btn-create-task").onclick = async () => {
   const schedule = prompt("Schedule (eg 'daily' or cron expression)", "");
   if (!cmd) return;
   const body = { command: cmd, schedule };
-  const r = await callApi("/api/tasks", { method: "POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const r = await callApi("/api/tasks/create", { method: "POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   alert(JSON.stringify(r.json || r.text || r.error, null, 2));
   el("btn-list-tasks").click();
 };
